@@ -13,8 +13,11 @@ import {
   Activity,
   Target
 } from 'lucide-react';
+import { useDashboard } from '../../contexts/DashboardContext';
+import { tasksAPI } from '../../services/api';
 
 const Dashboard = () => {
+  const { refreshTrigger } = useDashboard();
   const [stats, setStats] = useState({
     totalTasks: 0,
     completedTasks: 0,
@@ -29,58 +32,58 @@ const Dashboard = () => {
   const [recentTasks, setRecentTasks] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch real task statistics
+      const statsResponse = await tasksAPI.getStats();
+      const tasksResponse = await tasksAPI.getAll({ limit: 5, sortBy: 'createdAt', sortOrder: 'desc' });
+      
+      // Handle both old and new API response formats
+      const statsData = statsResponse.data.data || statsResponse.data;
+      const tasksData = tasksResponse.data.data || tasksResponse.data;
+      
+      // Calculate stats from the API response
+      const totalTasks = statsData.totalTasks || 0;
+      const overdueTasks = statsData.overdueTasks || 0;
+      const completedThisMonth = statsData.completedThisMonth || 0;
+      
+      // Calculate other stats
+      const pendingTasks = totalTasks - completedThisMonth - overdueTasks;
+      
+      setStats({
+        totalTasks,
+        completedTasks: completedThisMonth,
+        pendingTasks: Math.max(0, pendingTasks),
+        overdueTasks,
+        totalCost: 125000, // Mock data for now
+        monthlyCost: 15000, // Mock data for now
+        activeEmployees: 24, // Mock data for now
+        facilities: 8 // Mock data for now
+      });
+
+      // Format recent tasks
+      const formattedTasks = (tasksData || []).slice(0, 3).map(task => ({
+        id: task.id,
+        description: task.title || task.description,
+        status: task.status?.toLowerCase().replace(' ', '-') || 'pending',
+        priority: task.priority?.toLowerCase() || 'medium',
+        deadline: task.deadline,
+        cost: task.estimatedCost || 0
+      }));
+      
+      setRecentTasks(formattedTasks);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    // Simulate API call for dashboard data
-    const fetchDashboardData = async () => {
-      try {
-        // Mock data - replace with actual API calls
-        setStats({
-          totalTasks: 156,
-          completedTasks: 89,
-          pendingTasks: 45,
-          overdueTasks: 22,
-          totalCost: 125000,
-          monthlyCost: 15000,
-          activeEmployees: 24,
-          facilities: 8
-        });
-
-        setRecentTasks([
-          {
-            id: 1,
-            description: 'HVAC System Maintenance - Building A',
-            status: 'completed',
-            priority: 'high',
-            deadline: '2024-01-15',
-            cost: 2500
-          },
-          {
-            id: 2,
-            description: 'Elevator Inspection - Building B',
-            status: 'in-progress',
-            priority: 'medium',
-            deadline: '2024-01-20',
-            cost: 800
-          },
-          {
-            id: 3,
-            description: 'Fire Safety System Check',
-            status: 'pending',
-            priority: 'high',
-            deadline: '2024-01-18',
-            cost: 1200
-          }
-        ]);
-
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-        setLoading(false);
-      }
-    };
-
     fetchDashboardData();
-  }, []);
+  }, [refreshTrigger]); // Re-fetch when refreshTrigger changes
 
   const StatCard = ({ title, value, icon: Icon, color, trend, trendValue }) => (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">

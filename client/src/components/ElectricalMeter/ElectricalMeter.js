@@ -24,8 +24,26 @@ const ElectricalMeter = () => {
     currentReading: ''
   });
 
-  // Initialize with sample data
+  // Load meters from localStorage or initialize with sample data
   useEffect(() => {
+    const savedMeters = localStorage.getItem('electricalMeters');
+    if (savedMeters) {
+      try {
+        const parsedMeters = JSON.parse(savedMeters);
+        console.log('Loading saved meters from localStorage:', parsedMeters);
+        setMeters(parsedMeters);
+      } catch (error) {
+        console.error('Error parsing saved meters:', error);
+        // Fall back to sample data if parsing fails
+        initializeSampleData();
+      }
+    } else {
+      // Initialize with sample data if no saved data exists
+      initializeSampleData();
+    }
+  }, []);
+
+  const initializeSampleData = () => {
     const sampleMeters = [
       {
         id: 1,
@@ -44,8 +62,18 @@ const ElectricalMeter = () => {
         lastUpdated: new Date().toISOString()
       }
     ];
+    console.log('Setting sample meters:', sampleMeters);
     setMeters(sampleMeters);
-  }, []);
+    localStorage.setItem('electricalMeters', JSON.stringify(sampleMeters));
+  };
+
+  // Save meters to localStorage whenever meters state changes
+  useEffect(() => {
+    if (meters.length > 0) {
+      localStorage.setItem('electricalMeters', JSON.stringify(meters));
+      console.log('Saved meters to localStorage:', meters);
+    }
+  }, [meters]);
 
   const calculateStats = () => {
     const totalConsumption = meters.reduce((sum, meter) => 
@@ -160,6 +188,7 @@ const ElectricalMeter = () => {
   };
 
   const stats = calculateStats();
+  console.log('Rendering with meters:', meters);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -294,7 +323,13 @@ const ElectricalMeter = () => {
 
       {/* Meters Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {meters.map((meter) => (
+        {console.log('Mapping meters:', meters)}
+        {meters.length === 0 ? (
+          <div className="col-span-3 text-center py-8">
+            <p className="text-gray-500">No meters found. Add your first meter using the button above.</p>
+          </div>
+        ) : (
+          meters.map((meter) => (
           <div key={meter.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-black">{meter.name}</h3>
@@ -336,7 +371,8 @@ const ElectricalMeter = () => {
               </div>
             </div>
           </div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Modal */}

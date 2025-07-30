@@ -45,6 +45,12 @@ const Sidebar = ({ open, setOpen }) => {
       href: '/tasks',
       icon: CheckSquare,
       current: location.pathname === '/tasks'
+    },
+    {
+      name: 'Facilities',
+      href: '/facilities',
+      icon: Building,
+      current: location.pathname === '/facilities'
     }
   ];
 

@@ -16,12 +16,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { tasksAPI, uploadAPI } from '../../services/api';
+import { useDashboard } from '../../contexts/DashboardContext';
 import TaskCard from './TaskCard';
 import TaskForm from './TaskForm';
 import FilterModal from '../Common/FilterModal';
 import ConfirmModal from '../Common/ConfirmModal';
 
 const Tasks = () => {
+  const { triggerDashboardRefresh } = useDashboard();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,11 +72,20 @@ const Tasks = () => {
       };
 
       const response = await tasksAPI.getAll(params);
-      setTasks(response.data.tasks);
-      setTotalPages(response.data.totalPages);
+      // Handle both old MongoDB format and new SQLite format
+      if (response.data.data) {
+        // New SQLite format
+        setTasks(response.data.data || []);
+        setTotalPages(response.data.pagination?.pages || 1);
+      } else {
+        // Old MongoDB format (fallback)
+        setTasks(response.data.tasks || []);
+        setTotalPages(response.data.totalPages || 1);
+      }
     } catch (error) {
       toast.error('Failed to fetch tasks');
       console.error('Error fetching tasks:', error);
+      setTasks([]); // Ensure tasks is always an array
     } finally {
       setLoading(false);
     }
@@ -83,9 +94,23 @@ const Tasks = () => {
   const fetchStats = async () => {
     try {
       const response = await tasksAPI.getStats();
-      setStats(response.data);
+      // Handle both old MongoDB format and new SQLite format
+      if (response.data.data) {
+        // New SQLite format
+        setStats(response.data.data);
+      } else {
+        // Old MongoDB format (fallback)
+        setStats(response.data);
+      }
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Set default stats to prevent undefined errors
+      setStats({
+        totalTasks: 0,
+        completedTasks: 0,
+        overdueTasks: 0,
+        todayTasks: 0
+      });
     }
   };
 
@@ -134,6 +159,7 @@ const Tasks = () => {
       setShowForm(false);
       fetchTasks();
       fetchStats();
+      triggerDashboardRefresh();
     } catch (error) {
       toast.error('Failed to create task');
       console.error('Error creating task:', error);
@@ -148,6 +174,7 @@ const Tasks = () => {
       setEditingTask(null);
       fetchTasks();
       fetchStats();
+      triggerDashboardRefresh();
     } catch (error) {
       toast.error('Failed to update task');
       console.error('Error updating task:', error);
@@ -172,6 +199,7 @@ const Tasks = () => {
       setDeletingTask(null);
       fetchTasks();
       fetchStats();
+      triggerDashboardRefresh();
     } catch (error) {
       toast.error('Failed to delete task');
       console.error('Error deleting task:', error);
@@ -184,6 +212,7 @@ const Tasks = () => {
       toast.success('Task marked as completed');
       fetchTasks();
       fetchStats();
+      triggerDashboardRefresh();
     } catch (error) {
       toast.error('Failed to complete task');
       console.error('Error completing task:', error);
@@ -433,7 +462,7 @@ const Tasks = () => {
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
           </div>
-        ) : tasks.length === 0 ? (
+        ) : (tasks || []).length === 0 ? (
           <div className="text-center py-12">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckSquare className="h-12 w-12 text-gray-400" />
@@ -462,7 +491,7 @@ const Tasks = () => {
                 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' 
                 : 'grid-cols-1'
             }`}>
-              {tasks.map((task) => (
+              {(tasks || []).map((task) => (
                 <TaskCard
                   key={task._id}
                   task={task}
@@ -517,7 +546,7 @@ const Tasks = () => {
       {showForm && (
         <TaskForm
           task={editingTask}
-          onSubmit={editingTask ? handleUpdateTask : handleCreateTask}
+          onSave={editingTask ? handleUpdateTask : handleCreateTask}
           onCancel={() => {
             setShowForm(false);
             setEditingTask(null);

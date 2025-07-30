@@ -1,6 +1,38 @@
 const express = require('express');
 const router = express.Router();
-const Task = require('../models/Task');
+const db = require('../database/sqlite');
+
+// Helper function to format task data
+const formatTask = (row) => {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    location: row.location,
+    priority: row.priority,
+    status: row.status,
+    deadline: row.deadline ? new Date(row.deadline) : null,
+    finishedDate: row.finishedDate ? new Date(row.finishedDate) : null,
+    responsible: {
+      type: row.responsible_type,
+      name: row.responsible_name,
+      contact: row.responsible_contact
+    },
+    facility: row.facility_id ? {
+      id: row.facility_id,
+      name: row.facility_name,
+      location: row.facility_location,
+      type: row.facility_type
+    } : null,
+    facility_id: row.facility_id,
+    estimatedCost: row.estimatedCost,
+    actualCost: row.actualCost,
+    notes: row.notes,
+    createdAt: new Date(row.createdAt),
+    updatedAt: new Date(row.updatedAt)
+  };
+};
 
 // GET all tasks
 router.get('/', async (req, res) => {
@@ -18,411 +50,464 @@ router.get('/', async (req, res) => {
       sortOrder = 'asc'
     } = req.query;
 
-    const query = {};
+    let query = `
+      SELECT t.*, 
+             f.name as facility_name, 
+             f.location as facility_location, 
+             f.type as facility_type
+      FROM tasks t
+      LEFT JOIN facilities f ON t.facility_id = f.id
+      WHERE 1=1
+    `;
+    const params = [];
     
     // Filter by status
     if (status) {
-      query.status = status;
+      query += ' AND status = ?';
+      params.push(status);
     }
     
     // Filter by priority
     if (priority) {
-      query.priority = priority;
+      query += ' AND priority = ?';
+      params.push(priority);
     }
     
     // Filter by category
     if (category) {
-      query.category = category;
+      query += ' AND category = ?';
+      params.push(category);
     }
     
     // Filter by responsible person/company
     if (responsible) {
-      query['responsible.name'] = { $regex: responsible, $options: 'i' };
+      query += ' AND responsible_name LIKE ?';
+      params.push(`%${responsible}%`);
     }
     
     // Filter overdue tasks
     if (overdue === 'true') {
-      query.deadline = { $lt: new Date() };
-      query.status = { $nin: ['Completed', 'Cancelled'] };
+      query += ' AND deadline < ? AND status NOT IN ("Completed", "Cancelled")';
+      params.push(new Date().toISOString());
     }
     
     // Filter upcoming tasks (next 7 days)
     if (upcoming === 'true') {
+      const today = new Date();
       const sevenDaysFromNow = new Date();
-      sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-      query.deadline = { 
-        $gte: new Date(), 
-        $lte: sevenDaysFromNow 
-      };
-      query.status = { $nin: ['Completed', 'Cancelled'] };
+      sevenDaysFromNow.setDate(today.getDate() + 7);
+      query += ' AND deadline BETWEEN ? AND ? AND status NOT IN ("Completed", "Cancelled")';
+      params.push(today.toISOString(), sevenDaysFromNow.toISOString());
     }
-
-    const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    const tasks = await Task.find(query)
-      .populate('relatedMaintenance', 'system company.name')
-      .sort(sortOptions)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .exec();
-
-    const total = await Task.countDocuments(query);
-
+    
+    // Add sorting
+    const validSortFields = ['deadline', 'createdAt', 'updatedAt', 'priority', 'status'];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : 'deadline';
+    const order = sortOrder.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    query += ` ORDER BY ${sortField} ${order}`;
+    
+    // Add pagination
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    query += ' LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), offset);
+    
+    const tasks = db.prepare(query).all(...params);
+    const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
+    
+    const formattedTasks = tasks.map(formatTask);
+    
     res.json({
-      tasks,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
-      total
+      success: true,
+      data: formattedTasks,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalTasks,
+        pages: Math.ceil(totalTasks / parseInt(limit))
+      }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error fetching tasks', 
+      error: error.message 
+    });
   }
 });
 
 // GET single task
 router.get('/:id', async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id)
-      .populate('relatedMaintenance', 'system company.name cycles');
+    const task = db.prepare(`
+    SELECT t.*, 
+           f.name as facility_name, 
+           f.location as facility_location, 
+           f.type as facility_type
+    FROM tasks t
+    LEFT JOIN facilities f ON t.facility_id = f.id
+    WHERE t.id = ?
+  `).get(req.params.id);
     
     if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
+      return res.status(404).json({ success: false, message: 'Task not found' });
     }
-    res.json(task);
+    
+    res.json({ success: true, data: formatTask(task) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching task:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error fetching task', 
+      error: error.message 
+    });
   }
 });
 
-// POST create new task
+// POST create task
 router.post('/', async (req, res) => {
   try {
-    const task = new Task(req.body);
-    const savedTask = await task.save();
-    
-    // If it's a recurring task, calculate next occurrence
-    if (savedTask.recurring.isRecurring) {
-      savedTask.calculateNextOccurrence();
-      await savedTask.save();
-    }
-    
-    res.status(201).json(savedTask);
-  } catch (error) {
-    if (error.name === 'ValidationError') {
+    const {
+      title,
+      description,
+      category,
+      priority = 'Medium',
+      status = 'Pending',
+      deadline,
+      responsible,
+      estimatedCost,
+      notes
+    } = req.body;
+
+    if (!title) {
       return res.status(400).json({ 
-        message: 'Validation error', 
-        errors: Object.values(error.errors).map(e => e.message)
+        success: false, 
+        message: 'Title is required' 
       });
     }
-    res.status(500).json({ message: error.message });
+
+    const insertTask = db.prepare(`
+      INSERT INTO tasks (
+        title, description, category, priority, status, deadline,
+        responsible_type, responsible_name, responsible_contact,
+        estimatedCost, notes, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const now = new Date().toISOString();
+    const result = insertTask.run(
+      title,
+      description,
+      category,
+      priority,
+      status,
+      deadline,
+      responsible?.type,
+      responsible?.name,
+      responsible?.contact,
+      estimatedCost,
+      notes,
+      now,
+      now
+    );
+
+    const newTask = db.prepare(`
+      SELECT t.*, 
+             f.name as facility_name, 
+             f.location as facility_location, 
+             f.type as facility_type
+      FROM tasks t
+      LEFT JOIN facilities f ON t.facility_id = f.id
+      WHERE t.id = ?
+    `).get(result.lastInsertRowid);
+    
+    res.status(201).json({ success: true, data: formatTask(newTask) });
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(400).json({ 
+      success: false, 
+      message: 'Error creating task', 
+      error: error.message 
+    });
   }
 });
 
 // PUT update task
 router.put('/:id', async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
+    const taskId = req.params.id;
+    const updates = req.body;
+    
+    // Check if task exists
+    const existingTask = db.prepare(`
+      SELECT t.*, 
+             f.name as facility_name, 
+             f.location as facility_location, 
+             f.type as facility_type
+      FROM tasks t
+      LEFT JOIN facilities f ON t.facility_id = f.id
+      WHERE t.id = ?
+    `).get(taskId);
+    if (!existingTask) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
-    // Update fields
-    Object.keys(req.body).forEach(key => {
-      if (key !== '_id' && key !== '__v') {
-        task[key] = req.body[key];
+    // Build update query dynamically
+    const updateFields = [];
+    const params = [];
+    
+    const allowedFields = [
+      'title', 'description', 'category', 'priority', 'status', 'deadline',
+      'finishedDate', 'estimatedCost', 'actualCost', 'notes'
+    ];
+    
+    allowedFields.forEach(field => {
+      if (updates[field] !== undefined) {
+        updateFields.push(`${field} = ?`);
+        params.push(updates[field]);
       }
     });
-
-    // Recalculate next occurrence if recurring settings changed
-    if (req.body.recurring && task.recurring.isRecurring) {
-      task.calculateNextOccurrence();
+    
+    // Handle responsible object
+    if (updates.responsible) {
+      if (updates.responsible.type !== undefined) {
+        updateFields.push('responsible_type = ?');
+        params.push(updates.responsible.type);
+      }
+      if (updates.responsible.name !== undefined) {
+        updateFields.push('responsible_name = ?');
+        params.push(updates.responsible.name);
+      }
+      if (updates.responsible.contact !== undefined) {
+        updateFields.push('responsible_contact = ?');
+        params.push(updates.responsible.contact);
+      }
     }
-
-    const updatedTask = await task.save();
-    res.json(updatedTask);
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid fields to update' });
+    }
+    
+    // Add updatedAt
+    updateFields.push('updatedAt = ?');
+    params.push(new Date().toISOString());
+    
+    // Add WHERE clause parameter
+    params.push(taskId);
+    
+    const updateQuery = `UPDATE tasks SET ${updateFields.join(', ')} WHERE id = ?`;
+    db.prepare(updateQuery).run(...params);
+    
+    // Fetch updated task
+    const updatedTask = db.prepare(`
+      SELECT t.*, 
+             f.name as facility_name, 
+             f.location as facility_location, 
+             f.type as facility_type
+      FROM tasks t
+      LEFT JOIN facilities f ON t.facility_id = f.id
+      WHERE t.id = ?
+    `).get(taskId);
+    
+    res.json({ success: true, data: formatTask(updatedTask) });
   } catch (error) {
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({ 
-        message: 'Validation error', 
-        errors: Object.values(error.errors).map(e => e.message)
-      });
-    }
-    res.status(500).json({ message: error.message });
+    console.error('Error updating task:', error);
+    res.status(400).json({ 
+      success: false, 
+      message: 'Error updating task', 
+      error: error.message 
+    });
   }
 });
 
 // DELETE task
 router.delete('/:id', async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
+    const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
     }
-
-    await Task.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Task deleted successfully' });
+    
+    res.json({ success: true, message: 'Task deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error deleting task:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error deleting task', 
+      error: error.message 
+    });
   }
 });
 
-// POST mark task as completed
+// POST complete task
 router.post('/:id/complete', async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
-    if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
-    }
-
-    await task.markCompleted(req.body.completionNotes);
+    const taskId = req.params.id;
+    const { notes } = req.body;
     
-    // If it's a recurring task, create next occurrence
-    if (task.recurring.isRecurring) {
-      const nextTask = new Task({
-        ...task.toObject(),
-        _id: undefined,
-        status: 'Pending',
-        finishedDate: undefined,
-        completionNotes: undefined,
-        insertDate: new Date(),
-        deadline: task.recurring.nextOccurrence
-      });
-      
-      nextTask.calculateNextOccurrence();
-      await nextTask.save();
+    const updateQuery = `
+      UPDATE tasks 
+      SET status = 'Completed', finishedDate = ?, notes = COALESCE(?, notes), updatedAt = ?
+      WHERE id = ?
+    `;
+    
+    const now = new Date().toISOString();
+    const result = db.prepare(updateQuery).run(now, notes, now, taskId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
     }
     
-    res.json(task);
+    const updatedTask = db.prepare(`
+      SELECT t.*, 
+             f.name as facility_name, 
+             f.location as facility_location, 
+             f.type as facility_type
+      FROM tasks t
+      LEFT JOIN facilities f ON t.facility_id = f.id
+      WHERE t.id = ?
+    `).get(taskId);
+    
+    res.json({ success: true, data: formatTask(updatedTask) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error completing task:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error completing task', 
+      error: error.message 
+    });
   }
 });
 
 // POST update task status
 router.post('/:id/status', async (req, res) => {
   try {
+    const taskId = req.params.id;
     const { status } = req.body;
-    const task = await Task.findById(req.params.id);
     
-    if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
-    }
-
-    task.status = status;
-    
-    // If marking as completed, set finished date
-    if (status === 'Completed') {
-      task.finishedDate = new Date();
+    if (!status) {
+      return res.status(400).json({ success: false, message: 'Status is required' });
     }
     
-    const updatedTask = await task.save();
-    res.json(updatedTask);
+    const updateQuery = 'UPDATE tasks SET status = ?, updatedAt = ? WHERE id = ?';
+    const result = db.prepare(updateQuery).run(status, new Date().toISOString(), taskId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    
+    const updatedTask = db.prepare(`
+      SELECT t.*, 
+             f.name as facility_name, 
+             f.location as facility_location, 
+             f.type as facility_type
+      FROM tasks t
+      LEFT JOIN facilities f ON t.facility_id = f.id
+      WHERE t.id = ?
+    `).get(taskId);
+    
+    res.json({ success: true, data: formatTask(updatedTask) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error updating task status:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error updating task status', 
+      error: error.message 
+    });
   }
 });
 
 // GET task statistics
 router.get('/stats/overview', async (req, res) => {
   try {
-    const today = new Date();
+    const today = new Date().toISOString();
     const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(today.getDate() + 7);
-
-    const stats = await Promise.all([
-      // Total tasks
-      Task.countDocuments(),
-      
-      // Tasks by status
-      Task.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]),
-      
-      // Tasks by priority
-      Task.aggregate([
-        { $group: { _id: '$priority', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]),
-      
-      // Tasks by category
-      Task.aggregate([
-        { $group: { _id: '$category', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]),
-      
-      // Overdue tasks
-      Task.countDocuments({ 
-        deadline: { $lt: today },
-        status: { $nin: ['Completed', 'Cancelled'] }
-      }),
-      
-      // Upcoming tasks (next 7 days)
-      Task.countDocuments({
-        deadline: { 
-          $gte: today, 
-          $lte: sevenDaysFromNow 
-        },
-        status: { $nin: ['Completed', 'Cancelled'] }
-      }),
-      
-      // Completed this month
-      Task.countDocuments({
-        status: 'Completed',
-        finishedDate: {
-          $gte: new Date(today.getFullYear(), today.getMonth(), 1)
-        }
-      }),
-      
-      // Tasks by responsible type
-      Task.aggregate([
-        { $group: { _id: '$responsible.type', count: { $sum: 1 } } }
-      ])
-    ]);
-
+    sevenDaysFromNow.setDate(new Date().getDate() + 7);
+    const sevenDaysFromNowISO = sevenDaysFromNow.toISOString();
+    
+    const firstDayOfMonth = new Date();
+    firstDayOfMonth.setDate(1);
+    firstDayOfMonth.setHours(0, 0, 0, 0);
+    const firstDayOfMonthISO = firstDayOfMonth.toISOString();
+    
+    // Total tasks
+    const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
+    
+    // Tasks by status
+    const tasksByStatus = db.prepare(`
+      SELECT status as _id, COUNT(*) as count 
+      FROM tasks 
+      GROUP BY status 
+      ORDER BY count DESC
+    `).all();
+    
+    // Tasks by priority
+    const tasksByPriority = db.prepare(`
+      SELECT priority as _id, COUNT(*) as count 
+      FROM tasks 
+      GROUP BY priority 
+      ORDER BY count DESC
+    `).all();
+    
+    // Tasks by category
+    const tasksByCategory = db.prepare(`
+      SELECT category as _id, COUNT(*) as count 
+      FROM tasks 
+      WHERE category IS NOT NULL
+      GROUP BY category 
+      ORDER BY count DESC
+    `).all();
+    
+    // Overdue tasks
+    const overdueTasks = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM tasks 
+      WHERE deadline < ? AND status NOT IN ('Completed', 'Cancelled')
+    `).get(today).count;
+    
+    // Upcoming tasks (next 7 days)
+    const upcomingTasks = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM tasks 
+      WHERE deadline BETWEEN ? AND ? AND status NOT IN ('Completed', 'Cancelled')
+    `).get(today, sevenDaysFromNowISO).count;
+    
+    // Completed this month
+    const completedThisMonth = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM tasks 
+      WHERE status = 'Completed' AND finishedDate >= ?
+    `).get(firstDayOfMonthISO).count;
+    
+    // Tasks by responsible type
+    const tasksByResponsibleType = db.prepare(`
+      SELECT responsible_type as _id, COUNT(*) as count 
+      FROM tasks 
+      WHERE responsible_type IS NOT NULL
+      GROUP BY responsible_type
+    `).all();
+    
     res.json({
-      total: stats[0],
-      byStatus: stats[1],
-      byPriority: stats[2],
-      byCategory: stats[3],
-      overdue: stats[4],
-      upcoming: stats[5],
-      completedThisMonth: stats[6],
-      byResponsibleType: stats[7]
+      success: true,
+      data: {
+        totalTasks,
+        tasksByStatus,
+        tasksByPriority,
+        tasksByCategory,
+        overdueTasks,
+        upcomingTasks,
+        completedThisMonth,
+        tasksByResponsibleType
+      }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// GET dashboard tasks
-router.get('/dashboard/summary', async (req, res) => {
-  try {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(today.getDate() + 7);
-
-    const [overdueTasks, todayTasks, upcomingTasks, highPriorityTasks] = await Promise.all([
-      // Overdue tasks
-      Task.find({ 
-        deadline: { $lt: today },
-        status: { $nin: ['Completed', 'Cancelled'] }
-      })
-      .sort({ deadline: 1 })
-      .limit(5),
-      
-      // Tasks due today
-      Task.find({
-        deadline: {
-          $gte: today,
-          $lt: tomorrow
-        },
-        status: { $nin: ['Completed', 'Cancelled'] }
-      })
-      .sort({ priority: 1 })
-      .limit(5),
-      
-      // Upcoming tasks (next 7 days)
-      Task.find({
-        deadline: { 
-          $gte: tomorrow, 
-          $lte: sevenDaysFromNow 
-        },
-        status: { $nin: ['Completed', 'Cancelled'] }
-      })
-      .sort({ deadline: 1 })
-      .limit(10),
-      
-      // High priority tasks
-      Task.find({
-        priority: { $in: ['High', 'Critical', 'Emergency'] },
-        status: { $nin: ['Completed', 'Cancelled'] }
-      })
-      .sort({ deadline: 1 })
-      .limit(5)
-    ]);
-
-    res.json({
-      overdue: overdueTasks,
-      today: todayTasks,
-      upcoming: upcomingTasks,
-      highPriority: highPriorityTasks
+    console.error('Error fetching task stats:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error fetching task statistics', 
+      error: error.message 
     });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// GET tasks by responsible person/company
-router.get('/responsible/:name', async (req, res) => {
-  try {
-    const { name } = req.params;
-    const { status, page = 1, limit = 10 } = req.query;
-    
-    const query = {
-      'responsible.name': { $regex: name, $options: 'i' }
-    };
-    
-    if (status) {
-      query.status = status;
-    }
-
-    const tasks = await Task.find(query)
-      .sort({ deadline: 1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
-
-    const total = await Task.countDocuments(query);
-
-    res.json({
-      tasks,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
-      total,
-      responsible: name
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// POST bulk update tasks
-router.post('/bulk-update', async (req, res) => {
-  try {
-    const { taskIds, updates } = req.body;
-    
-    if (!taskIds || !Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({ message: 'Task IDs array is required' });
-    }
-
-    const result = await Task.updateMany(
-      { _id: { $in: taskIds } },
-      { $set: updates }
-    );
-
-    res.json({
-      message: `${result.modifiedCount} tasks updated successfully`,
-      modifiedCount: result.modifiedCount
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// GET recurring tasks
-router.get('/recurring/list', async (req, res) => {
-  try {
-    const recurringTasks = await Task.find({
-      'recurring.isRecurring': true
-    }).sort({ 'recurring.nextOccurrence': 1 });
-
-    res.json(recurringTasks);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
   }
 });
 

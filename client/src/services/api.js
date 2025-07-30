@@ -120,9 +120,21 @@ export const tasksAPI = {
   delete: (id) => api.delete(`/tasks/${id}`),
   bulkUpdate: (data) => api.patch('/tasks/bulk', data),
   markComplete: (id, completionData) => api.patch(`/tasks/${id}/complete`, completionData),
-  getStats: () => api.get('/tasks/stats'),
+  getStats: () => api.get('/tasks/stats/overview'),
   getUpcoming: () => api.get('/tasks/upcoming'),
   getOverdue: () => api.get('/tasks/overdue')
+};
+
+// Facilities API
+export const facilitiesAPI = {
+  getAll: (params = {}) => api.get('/facilities', { params }),
+  getById: (id) => api.get(`/facilities/${id}`),
+  create: (data) => api.post('/facilities', data),
+  update: (id, data) => api.put(`/facilities/${id}`, data),
+  delete: (id) => api.delete(`/facilities/${id}`),
+  getTasks: (id, params = {}) => api.get(`/facilities/${id}/tasks`, { params }),
+  getMaintenance: (id, params = {}) => api.get(`/facilities/${id}/maintenance`, { params }),
+  getStats: (id) => api.get(`/facilities/${id}/stats`)
 };
 
 // Upload API

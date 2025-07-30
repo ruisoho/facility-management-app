@@ -54,7 +54,7 @@ const Consumption = () => {
   useEffect(() => {
     fetchConsumptions();
     fetchStats();
-  }, [currentPage, sortBy, sortOrder, filters]);
+  }, [currentPage, sortBy, sortOrder, filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchConsumptions = async () => {
     try {
@@ -69,11 +69,15 @@ const Consumption = () => {
       };
 
       const response = await consumptionAPI.getAll(params);
-      setConsumptions(response.data.consumptions);
-      setTotalPages(response.data.totalPages);
+      const responseData = response.data || {};
+      setConsumptions(responseData.consumptions || []);
+      setTotalPages(responseData.totalPages || 1);
     } catch (error) {
       toast.error('Failed to fetch consumption records');
       console.error('Error fetching consumptions:', error);
+      // Set fallback values on error
+      setConsumptions([]);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
@@ -82,9 +86,26 @@ const Consumption = () => {
   const fetchStats = async () => {
     try {
       const response = await consumptionAPI.getStats();
-      setStats(response.data);
+      const statsData = response.data || {};
+      setStats({
+        totalElectricity: statsData.totalElectricity || 0,
+        totalGas: statsData.totalGas || 0,
+        monthlyElectricity: statsData.monthlyElectricity || 0,
+        monthlyGas: statsData.monthlyGas || 0,
+        averageDaily: statsData.averageDaily || 0,
+        unverifiedCount: statsData.unverifiedCount || 0
+      });
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Set default values on error
+      setStats({
+        totalElectricity: 0,
+        totalGas: 0,
+        monthlyElectricity: 0,
+        monthlyGas: 0,
+        averageDaily: 0,
+        unverifiedCount: 0
+      });
     }
   };
 
@@ -225,8 +246,7 @@ const Consumption = () => {
               </button>
               <button
                 onClick={() => {
-                  setEditingConsumption(null);
-                  setShowForm(true);
+                  navigate('/electrical-meters');
                 }}
                 className="flex items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl"
               >
@@ -412,7 +432,7 @@ const Consumption = () => {
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
-        ) : consumptions.length === 0 ? (
+        ) : !consumptions || consumptions.length === 0 ? (
           <div className="text-center py-12">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <BarChart3 className="h-12 w-12 text-gray-400" />
@@ -423,13 +443,7 @@ const Consumption = () => {
             <p className="text-gray-600 mb-6">
               Get started by adding your first consumption record.
             </p>
-            <button
-              onClick={() => navigate('/electrical-meters')}
-              className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors duration-200"
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              Add First Record
-            </button>
+
           </div>
         ) : (
           <>

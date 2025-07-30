@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, User, Building, MapPin, DollarSign, FileText, Tag, Clock } from 'lucide-react';
 import DatePicker from 'react-datepicker';
+import { facilitiesAPI } from '../../services/api';
 import 'react-datepicker/dist/react-datepicker.css';
 
 const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
@@ -12,6 +13,7 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
     status: 'pending',
     category: '',
     location: '',
+    facilityId: '',
     responsibleType: 'company', // 'company' or 'employee'
     responsibleCompany: '',
     responsibleContact: '',
@@ -23,28 +25,47 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
   });
 
   const [errors, setErrors] = useState({});
+  const [facilities, setFacilities] = useState([]);
+  const [loadingFacilities, setLoadingFacilities] = useState(true);
+
+  useEffect(() => {
+    fetchFacilities();
+  }, []);
 
   useEffect(() => {
     if (task) {
       setFormData({
-        what: task.what || '',
+        what: task.title || task.what || '',
         description: task.description || '',
         deadline: task.deadline ? new Date(task.deadline) : null,
         priority: task.priority || 'medium',
         status: task.status || 'pending',
         category: task.category || '',
         location: task.location || '',
-        responsibleType: task.responsibleCompany ? 'company' : 'employee',
-        responsibleCompany: task.responsibleCompany || '',
-        responsibleContact: task.responsibleContact || '',
-        responsiblePhone: task.responsiblePhone || '',
-        responsibleEmail: task.responsibleEmail || '',
-        responsibleEmployee: task.responsibleEmployee || '',
+        facilityId: task.facility_id || '',
+        responsibleType: task.responsible?.type || 'employee',
+        responsibleCompany: task.responsible?.type === 'company' ? task.responsible.name : '',
+        responsibleContact: task.responsible?.type === 'company' ? task.responsible.contact : '',
+        responsiblePhone: '',
+        responsibleEmail: '',
+        responsibleEmployee: task.responsible?.type === 'employee' ? task.responsible.name : '',
         estimatedCost: task.estimatedCost || '',
         notes: task.notes || ''
       });
     }
   }, [task]);
+
+  const fetchFacilities = async () => {
+    try {
+      setLoadingFacilities(true);
+      const response = await facilitiesAPI.getAll({ limit: 100 });
+      setFacilities(response.data.data);
+    } catch (error) {
+      console.error('Error fetching facilities:', error);
+    } finally {
+      setLoadingFacilities(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -103,13 +124,36 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
 
     const taskData = {
       ...formData,
-      estimatedCost: formData.estimatedCost ? parseFloat(formData.estimatedCost) : null
+      title: formData.what, // Map 'what' to 'title' for server compatibility
+      estimatedCost: formData.estimatedCost ? parseFloat(formData.estimatedCost) : null,
+      facility_id: formData.facilityId ? parseInt(formData.facilityId) : null
     };
+    
+    // Remove the 'what' field since we're using 'title'
+    delete taskData.what;
+    delete taskData.facilityId; // Remove client-side field name
 
-    // Clean up based on responsible type
+    // Map responsible fields to server format
     if (formData.responsibleType === 'company') {
+      taskData.responsible = {
+        type: 'company',
+        name: formData.responsibleCompany,
+        contact: formData.responsibleContact || formData.responsiblePhone || formData.responsibleEmail
+      };
+      // Clean up individual responsible fields
       delete taskData.responsibleEmployee;
+      delete taskData.responsibleCompany;
+      delete taskData.responsibleContact;
+      delete taskData.responsiblePhone;
+      delete taskData.responsibleEmail;
     } else {
+      taskData.responsible = {
+        type: 'employee',
+        name: formData.responsibleEmployee,
+        contact: ''
+      };
+      // Clean up individual responsible fields
+      delete taskData.responsibleEmployee;
       delete taskData.responsibleCompany;
       delete taskData.responsibleContact;
       delete taskData.responsiblePhone;
@@ -255,6 +299,30 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
                     <option key={category} value={category}>{category}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <Building className="h-4 w-4 inline mr-1" />
+                  Facility
+                </label>
+                <select
+                  name="facilityId"
+                  value={formData.facilityId}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200"
+                  disabled={loadingFacilities}
+                >
+                  <option value="">Select facility (optional)</option>
+                  {facilities.map(facility => (
+                    <option key={facility.id} value={facility.id}>
+                      {facility.name} - {facility.location}
+                    </option>
+                  ))}
+                </select>
+                {loadingFacilities && (
+                  <p className="mt-1 text-sm text-gray-500">Loading facilities...</p>
+                )}
               </div>
 
               <div>

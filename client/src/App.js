@@ -9,6 +9,8 @@ import Maintenance from './components/Maintenance/Maintenance';
 import Consumption from './components/Consumption/Consumption';
 import ElectricalMeter from './components/ElectricalMeter/ElectricalMeter';
 import Tasks from './components/Tasks/Tasks';
+import Facilities from './pages/Facilities';
+import { DashboardProvider } from './contexts/DashboardContext';
 import './App.css';
 
 function App() {
@@ -16,55 +18,61 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <Router>
-        <div className="min-h-screen bg-gray-50">
-          <Toaster 
-            position="top-right"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: '#363636',
-                color: '#fff',
-                borderRadius: '12px',
-                padding: '16px',
-                fontSize: '14px',
-                fontWeight: '500',
-              },
-              success: {
+      <DashboardProvider>
+        <Router future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true
+        }}>
+          <div className="min-h-screen bg-gray-50">
+            <Toaster 
+              position="top-right"
+              toastOptions={{
+                duration: 4000,
                 style: {
-                  background: '#10b981',
+                  background: '#363636',
+                  color: '#fff',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
                 },
-              },
-              error: {
-                style: {
-                  background: '#ef4444',
+                success: {
+                  style: {
+                    background: '#10b981',
+                  },
                 },
-              },
-            }}
-          />
-          
-          {/* Sidebar */}
-          <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />
-          
-          {/* Main Content */}
-          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
-            {/* Header */}
-            <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+                error: {
+                  style: {
+                    background: '#ef4444',
+                  },
+                },
+              }}
+            />
             
-            {/* Page Content */}
-            <main className="p-4 sm:p-6">
-              <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/maintenance" element={<Maintenance />} />
-                <Route path="/consumption" element={<Consumption />} />
-                <Route path="/electrical-meters" element={<ElectricalMeter />} />
-                <Route path="/tasks" element={<Tasks />} />
-              </Routes>
-            </main>
+            {/* Sidebar */}
+            <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />
+            
+            {/* Main Content */}
+            <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
+              {/* Header */}
+              <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+              
+              {/* Page Content */}
+              <main className="p-4 sm:p-6">
+                <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/maintenance" element={<Maintenance />} />
+                  <Route path="/consumption" element={<Consumption />} />
+                  <Route path="/electrical-meters" element={<ElectricalMeter />} />
+                  <Route path="/tasks" element={<Tasks />} />
+                  <Route path="/facilities" element={<Facilities />} />
+                </Routes>
+              </main>
+            </div>
           </div>
-        </div>
-      </Router>
+        </Router>
+      </DashboardProvider>
     </ErrorBoundary>
   );
 }

@@ -1,10 +1,12 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+// Initialize SQLite database
+const db = require('./database/sqlite');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -33,53 +35,22 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static files for uploaded documents
 app.use('/uploads', express.static('uploads'));
 
-// MongoDB connection with better error handling
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/facility_management';
-
-// Try to connect to MongoDB, but don't fail if it's not available
-let mongoConnected = false;
-
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-  socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
-})
-.then(() => {
-  console.log('✅ Connected to MongoDB');
-  console.log(`📊 Database: ${MONGODB_URI}`);
-  mongoConnected = true;
-})
-.catch(err => {
-  console.error('❌ MongoDB connection error:', err.message);
-  console.log('💡 Running in development mode without MongoDB');
-  console.log('💡 Some features may not work properly');
-  mongoConnected = false;
-});
-
-// Handle MongoDB connection events
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB connection error:', err);
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ MongoDB disconnected');
-});
-
-mongoose.connection.on('reconnected', () => {
-  console.log('✅ MongoDB reconnected');
-});
+console.log('✅ SQLite database initialized');
+console.log('📊 Database: Local SQLite file');
+console.log('🚀 No external database dependencies required');
 
 // Import routes
 const maintenanceRoutes = require('./routes/maintenance');
 const consumptionRoutes = require('./routes/consumption');
 const taskRoutes = require('./routes/tasks');
+const facilitiesRoutes = require('./routes/facilities');
 const uploadRoutes = require('./routes/upload');
 
 // API routes
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/consumption', consumptionRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/facilities', facilitiesRoutes);
 app.use('/api/upload', uploadRoutes);
 
 // Health check endpoint
