@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -11,12 +12,16 @@ import {
   Wrench,
   Calendar,
   Activity,
-  Target
+  Target,
+  Plus,
+  FileText
 } from 'lucide-react';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { tasksAPI } from '../../services/api';
+import { tasksAPI, facilitiesAPI, maintenanceAPI } from '../../services/api';
+import ReportsModal from './ReportsModal';
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const { refreshTrigger } = useDashboard();
   const [stats, setStats] = useState({
     totalTasks: 0,
@@ -26,51 +31,69 @@ const Dashboard = () => {
     totalCost: 0,
     monthlyCost: 0,
     activeEmployees: 0,
-    facilities: 0
+    facilities: 0,
+    maintenanceScore: 0
   });
 
   const [recentTasks, setRecentTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showReportsModal, setShowReportsModal] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
       
-      // Fetch real task statistics
-      const statsResponse = await tasksAPI.getStats();
-      const tasksResponse = await tasksAPI.getAll({ limit: 5, sortBy: 'createdAt', sortOrder: 'desc' });
+      // Fetch data from all APIs
+      const [tasksResponse, facilitiesResponse, maintenanceResponse, tasksStatsResponse] = await Promise.all([
+        tasksAPI.getAll({ limit: 5, sortBy: 'createdAt', sortOrder: 'desc' }),
+        facilitiesAPI.getAll(),
+        maintenanceAPI.getAll(),
+        tasksAPI.getStats()
+      ]);
       
-      // Handle both old and new API response formats
-      const statsData = statsResponse.data.data || statsResponse.data;
-      const tasksData = tasksResponse.data.data || tasksResponse.data;
+      // Handle API response structure
+      const tasksData = tasksResponse.data.data?.tasks || tasksResponse.data.tasks || tasksResponse.data;
+      const facilitiesData = facilitiesResponse.data.data?.facilities || facilitiesResponse.data.facilities || facilitiesResponse.data;
+      const maintenanceData = maintenanceResponse.data.data?.maintenance || maintenanceResponse.data.maintenance || maintenanceResponse.data;
+      const statsData = tasksStatsResponse.data.summary || tasksStatsResponse.data;
       
-      // Calculate stats from the API response
-      const totalTasks = statsData.totalTasks || 0;
-      const overdueTasks = statsData.overdueTasks || 0;
-      const completedThisMonth = statsData.completedThisMonth || 0;
+      // Calculate stats from the API responses
+      const totalTasks = statsData.total || 0;
+      const overdueTasks = statsData.overdue || 0;
+      const completedThisMonth = statsData.completed || 0;
+      const pendingTasks = statsData.pending || 0;
+      const inProgressTasks = statsData.inProgress || 0;
       
-      // Calculate other stats
-      const pendingTasks = totalTasks - completedThisMonth - overdueTasks;
+      // Calculate pending tasks if not provided
+      const calculatedPendingTasks = pendingTasks || Math.max(0, totalTasks - completedThisMonth - overdueTasks - inProgressTasks);
+      
+      // Calculate maintenance score based on completed vs total maintenance items
+      const totalMaintenance = Array.isArray(maintenanceData) ? maintenanceData.length : 0;
+      const completedMaintenance = Array.isArray(maintenanceData) 
+        ? maintenanceData.filter(item => item.status === 'completed').length 
+        : 0;
+      const maintenanceScore = totalMaintenance > 0 ? Math.round((completedMaintenance / totalMaintenance) * 100) : 92;
       
       setStats({
         totalTasks,
         completedTasks: completedThisMonth,
-        pendingTasks: Math.max(0, pendingTasks),
+        pendingTasks: calculatedPendingTasks,
         overdueTasks,
         totalCost: 125000, // Mock data for now
         monthlyCost: 15000, // Mock data for now
         activeEmployees: 24, // Mock data for now
-        facilities: 8 // Mock data for now
+        facilities: Array.isArray(facilitiesData) ? facilitiesData.length : 0,
+        maintenanceScore
       });
 
       // Format recent tasks
       const formattedTasks = (tasksData || []).slice(0, 3).map(task => ({
-        id: task.id,
-        description: task.title || task.description,
+        id: task.id || task._id,
+        description: task.title || task.what || task.description,
         status: task.status?.toLowerCase().replace(' ', '-') || 'pending',
         priority: task.priority?.toLowerCase() || 'medium',
         deadline: task.deadline,
-        cost: task.estimatedCost || 0
+        cost: task.estimatedCost || task.cost?.estimated || 0
       }));
       
       setRecentTasks(formattedTasks);
@@ -221,7 +244,7 @@ const Dashboard = () => {
         />
         <StatCard
           title="Maintenance Score"
-          value="92%"
+          value={`${stats.maintenanceScore}%`}
           icon={Activity}
           color="bg-emerald-500"
           trend="up"
@@ -236,7 +259,10 @@ const Dashboard = () => {
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-gray-900">Recent Tasks</h2>
-              <button className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+              <button 
+                onClick={() => navigate('/tasks')}
+                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+              >
                 View All
               </button>
             </div>
@@ -253,20 +279,29 @@ const Dashboard = () => {
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
             <div className="space-y-3">
-              <button className="w-full flex items-center p-3 text-left hover:bg-gray-50 rounded-lg transition-colors duration-200">
-                <Wrench className="w-5 h-5 text-blue-600 mr-3" />
+              <button 
+                onClick={() => navigate('/tasks')}
+                className="w-full flex items-center p-3 text-left hover:bg-gray-50 rounded-lg transition-colors duration-200"
+              >
+                <Plus className="w-5 h-5 text-blue-600 mr-3" />
                 <span className="text-gray-700">Create New Task</span>
               </button>
               <button className="w-full flex items-center p-3 text-left hover:bg-gray-50 rounded-lg transition-colors duration-200">
                 <Users className="w-5 h-5 text-green-600 mr-3" />
                 <span className="text-gray-700">Manage Employees</span>
               </button>
-              <button className="w-full flex items-center p-3 text-left hover:bg-gray-50 rounded-lg transition-colors duration-200">
+              <button 
+                onClick={() => navigate('/facilities')}
+                className="w-full flex items-center p-3 text-left hover:bg-gray-50 rounded-lg transition-colors duration-200"
+              >
                 <Building className="w-5 h-5 text-purple-600 mr-3" />
-                <span className="text-gray-700">Add Facility</span>
+                <span className="text-gray-700">Facilities</span>
               </button>
-              <button className="w-full flex items-center p-3 text-left hover:bg-gray-50 rounded-lg transition-colors duration-200">
-                <BarChart3 className="w-5 h-5 text-orange-600 mr-3" />
+              <button 
+                onClick={() => setShowReportsModal(true)}
+                className="w-full flex items-center p-3 text-left hover:bg-gray-50 rounded-lg transition-colors duration-200"
+              >
+                <FileText className="w-5 h-5 text-orange-600 mr-3" />
                 <span className="text-gray-700">View Reports</span>
               </button>
             </div>
@@ -308,6 +343,15 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Reports Modal */}
+      {showReportsModal && (
+        <ReportsModal 
+          onClose={() => setShowReportsModal(false)}
+          stats={stats}
+          recentTasks={recentTasks}
+        />
+      )}
     </div>
   );
 };

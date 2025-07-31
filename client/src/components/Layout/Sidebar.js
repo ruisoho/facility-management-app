@@ -9,7 +9,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Building,
-  Activity
+  Activity,
+  Thermometer
 } from 'lucide-react';
 
 const Sidebar = ({ open, setOpen }) => {
@@ -29,18 +30,6 @@ const Sidebar = ({ open, setOpen }) => {
       current: location.pathname === '/maintenance'
     },
     {
-      name: 'Consumption',
-      href: '/consumption',
-      icon: Zap,
-      current: location.pathname === '/consumption'
-    },
-    {
-      name: 'Electrical Meters',
-      href: '/electrical-meters',
-      icon: Activity,
-      current: location.pathname === '/electrical-meters'
-    },
-    {
       name: 'Tasks',
       href: '/tasks',
       icon: CheckSquare,
@@ -51,6 +40,18 @@ const Sidebar = ({ open, setOpen }) => {
       href: '/facilities',
       icon: Building,
       current: location.pathname === '/facilities'
+    },
+    {
+      name: 'Electrical Meters',
+      href: '/electrical-meters',
+      icon: Activity,
+      current: location.pathname === '/electrical-meters'
+    },
+    {
+      name: 'Heat & Gas Meters',
+      href: '/heat-gas-meters',
+      icon: Thermometer,
+      current: location.pathname === '/heat-gas-meters'
     }
   ];
 

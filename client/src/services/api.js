@@ -38,30 +38,28 @@ api.interceptors.response.use(
 // Dashboard API
 export const fetchDashboardData = async () => {
   try {
-    const [maintenance, consumption, tasks] = await Promise.all([
-      api.get('/maintenance/stats'),
-      api.get('/consumption/stats'),
-      api.get('/tasks/stats')
+    const [maintenance, tasks] = await Promise.all([
+      api.get('/maintenance/stats/dashboard'),
+      api.get('/tasks/stats/dashboard')
     ]);
 
     return {
       stats: {
-        totalMaintenance: maintenance.data.total || 0,
-        overdueMaintenance: maintenance.data.overdue || 0,
-        totalTasks: tasks.data.total || 0,
-        overdueTasks: tasks.data.overdue || 0,
-        monthlyElectricity: consumption.data.monthlyElectricity || 0,
-        monthlyGas: consumption.data.monthlyGas || 0,
-        totalCost: consumption.data.totalCost || 0,
-        completedThisMonth: tasks.data.completedThisMonth || 0
+        totalMaintenance: maintenance.data.summary?.total || 0,
+        overdueMaintenance: maintenance.data.summary?.overdue || 0,
+        totalTasks: tasks.data.summary?.total || 0,
+        overdueTasks: tasks.data.summary?.overdue || 0,
+        monthlyElectricity: 0,
+        monthlyGas: 0,
+        totalCost: 0,
+        completedThisMonth: tasks.data.summary?.completed || 0
       },
       charts: {
-        consumptionTrend: consumption.data.trend || [],
         maintenanceStatus: maintenance.data.statusDistribution || [],
         tasksPriority: tasks.data.priorityDistribution || []
       },
       recentActivity: [], // Will be populated from actual API
-      upcomingTasks: tasks.data.upcoming || []
+      upcomingTasks: tasks.data.upcomingDeadlines || []
     };
   } catch (error) {
     console.error('Error fetching dashboard data:', error);
@@ -77,12 +75,57 @@ export const fetchDashboardData = async () => {
         completedThisMonth: 0
       },
       charts: {
-        consumptionTrend: [],
         maintenanceStatus: [],
         tasksPriority: []
       },
       recentActivity: [],
       upcomingTasks: []
+    };
+  }
+};
+
+export const getDashboardStats = async () => {
+  try {
+    const [maintenance, tasks] = await Promise.all([
+      api.get('/maintenance/stats/dashboard'),
+      api.get('/tasks/stats/dashboard')
+    ]);
+
+    return {
+      success: true,
+      data: {
+        totalTasks: tasks.data.summary?.total || 0,
+        completedTasks: tasks.data.summary?.completed || 0,
+        pendingTasks: tasks.data.summary?.pending || 0,
+        overdueTasks: tasks.data.summary?.overdue || 0,
+        totalMaintenanceItems: maintenance.data.summary?.total || 0,
+        completedMaintenanceItems: maintenance.data.summary?.completed || 0,
+        pendingMaintenanceItems: maintenance.data.summary?.pending || 0,
+        overdueMaintenanceItems: maintenance.data.summary?.overdue || 0,
+        totalCost: 0,
+        monthlyElectricity: 0,
+        monthlyGas: 0,
+        recentActivities: []
+      }
+    };
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    return {
+      success: false,
+      data: {
+        totalTasks: 0,
+        completedTasks: 0,
+        pendingTasks: 0,
+        overdueTasks: 0,
+        totalMaintenanceItems: 0,
+        completedMaintenanceItems: 0,
+        pendingMaintenanceItems: 0,
+        overdueMaintenanceItems: 0,
+        totalCost: 0,
+        monthlyElectricity: 0,
+        monthlyGas: 0,
+        recentActivities: []
+      }
     };
   }
 };
@@ -99,18 +142,6 @@ export const maintenanceAPI = {
   getUpcoming: () => api.get('/maintenance/upcoming')
 };
 
-// Consumption API
-export const consumptionAPI = {
-  getAll: (params = {}) => api.get('/consumption', { params }),
-  getById: (id) => api.get(`/consumption/${id}`),
-  create: (data) => api.post('/consumption', data),
-  update: (id, data) => api.put(`/consumption/${id}`, data),
-  delete: (id) => api.delete(`/consumption/${id}`),
-  verify: (id) => api.patch(`/consumption/${id}/verify`),
-  getAnalytics: (params = {}) => api.get('/consumption/analytics', { params }),
-  getStats: () => api.get('/consumption/stats')
-};
-
 // Tasks API
 export const tasksAPI = {
   getAll: (params = {}) => api.get('/tasks', { params }),
@@ -120,7 +151,7 @@ export const tasksAPI = {
   delete: (id) => api.delete(`/tasks/${id}`),
   bulkUpdate: (data) => api.patch('/tasks/bulk', data),
   markComplete: (id, completionData) => api.patch(`/tasks/${id}/complete`, completionData),
-  getStats: () => api.get('/tasks/stats/overview'),
+  getStats: () => api.get('/tasks/stats/dashboard'),
   getUpcoming: () => api.get('/tasks/upcoming'),
   getOverdue: () => api.get('/tasks/overdue')
 };

@@ -5,11 +5,11 @@ import ErrorBoundary from './components/Common/ErrorBoundary';
 import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
 import Dashboard from './components/Dashboard/Dashboard';
-import Maintenance from './components/Maintenance/Maintenance';
-import Consumption from './components/Consumption/Consumption';
-import ElectricalMeter from './components/ElectricalMeter/ElectricalMeter';
 import Tasks from './components/Tasks/Tasks';
+import Maintenance from './components/Maintenance/Maintenance';
 import Facilities from './pages/Facilities';
+import ElectricalMeter from './components/ElectricalMeter/ElectricalMeter';
+import HeatGasMeter from './components/HeatGasMeter/HeatGasMeter';
 import { DashboardProvider } from './contexts/DashboardContext';
 import './App.css';
 
@@ -63,8 +63,8 @@ function App() {
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/maintenance" element={<Maintenance />} />
-                  <Route path="/consumption" element={<Consumption />} />
                   <Route path="/electrical-meters" element={<ElectricalMeter />} />
+                  <Route path="/heat-gas-meters" element={<HeatGasMeter />} />
                   <Route path="/tasks" element={<Tasks />} />
                   <Route path="/facilities" element={<Facilities />} />
                 </Routes>

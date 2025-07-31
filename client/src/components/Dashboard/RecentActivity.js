@@ -17,8 +17,6 @@ const RecentActivity = ({ activities = [] }) => {
         return Wrench;
       case 'task':
         return CheckSquare;
-      case 'consumption':
-        return Zap;
       case 'alert':
         return AlertTriangle;
       default:
@@ -32,8 +30,6 @@ const RecentActivity = ({ activities = [] }) => {
         return 'text-blue-600 bg-blue-50';
       case 'task':
         return 'text-green-600 bg-green-50';
-      case 'consumption':
-        return 'text-yellow-600 bg-yellow-50';
       case 'alert':
         return 'text-red-600 bg-red-50';
       default:
@@ -62,20 +58,11 @@ const RecentActivity = ({ activities = [] }) => {
     },
     {
       id: 3,
-      type: 'consumption',
-      title: 'Energy Reading Updated',
-      description: 'Daily electricity consumption logged',
-      user: 'System',
-      timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
-      status: 'updated'
-    },
-    {
-      id: 4,
       type: 'alert',
       title: 'Maintenance Overdue',
       description: 'Elevator maintenance is 3 days overdue',
       user: 'System Alert',
-      timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000), // 8 hours ago
+      timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
       status: 'overdue'
     }
   ];
