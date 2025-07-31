@@ -14,10 +14,10 @@ import {
   FaPause,
   FaCalendarAlt,
   FaChartBar,
-  FaArrowUp,
-  FaArrowDown,
+  FaGripVertical,
   FaTimes
 } from 'react-icons/fa';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import { toast } from 'react-toastify';
 import { facilitiesAPI } from '../../services/api';
 import { Line, Bar } from 'react-chartjs-2';
@@ -170,22 +170,57 @@ const ElectricalMeter = () => {
     fetchMeters();
   }, [searchTerm, filterStatus, filterFacility]);
 
-  // Add reordering functions
-  const moveUp = (index) => {
-    if (index > 0) {
-      const newMeters = [...meters];
-      [newMeters[index], newMeters[index - 1]] = [newMeters[index - 1], newMeters[index]];
-      setMeters(newMeters);
-      toast.success('Meter moved up');
+  // Handle drag and drop reordering
+  const handleDragEnd = async (result) => {
+    if (!result.destination) {
+      return;
     }
-  };
 
-  const moveDown = (index) => {
-    if (index < meters.length - 1) {
-      const newMeters = [...meters];
-      [newMeters[index], newMeters[index + 1]] = [newMeters[index + 1], newMeters[index]];
-      setMeters(newMeters);
-      toast.success('Zähler nach unten verschoben');
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+
+    if (sourceIndex === destinationIndex) {
+      return;
+    }
+
+    // Reorder meters locally
+    const newMeters = Array.from(meters);
+    const [reorderedMeter] = newMeters.splice(sourceIndex, 1);
+    newMeters.splice(destinationIndex, 0, reorderedMeter);
+
+    // Update local state immediately for better UX
+    setMeters(newMeters);
+
+    try {
+      // Prepare order data for API
+      const meterOrders = newMeters.map((meter, index) => ({
+        id: meter.id,
+        display_order: index + 1
+      }));
+
+      // Send to API
+      const response = await fetch('/api/electric-meters/reorder', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ meterOrders })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('Meter order updated successfully!');
+        // Refetch meters to ensure consistency with database
+        fetchMeters();
+      } else {
+        throw new Error(result.message || 'Failed to update order');
+      }
+    } catch (error) {
+      console.error('Error updating meter order:', error);
+      toast.error('Failed to save new order. Please try again.');
+      // Revert to original order on error
+      fetchMeters();
     }
   };
 
@@ -657,75 +692,57 @@ const ElectricalMeter = () => {
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
               </div>
             ) : (
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Order
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Meter
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Facility
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Reading
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Consumption
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {meters.map((meter, index) => (
-                    <tr key={meter.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-col gap-1">
-                          <button
-                            onClick={() => moveUp(index)}
-                            disabled={index === 0}
-                            className={`p-1 rounded text-xs ${
-                              index === 0 
-                                ? 'text-gray-300 cursor-not-allowed' 
-                                : 'text-blue-600 hover:text-blue-800 hover:bg-blue-50'
-                            }`}
-                            title="Nach oben verschieben"
-                          >
-                            <FaArrowUp />
-                          </button>
-                          <button
-                            onClick={() => moveDown(index)}
-                            disabled={index === meters.length - 1}
-                            className={`p-1 rounded text-xs ${
-                              index === meters.length - 1 
-                                ? 'text-gray-300 cursor-not-allowed' 
-                                : 'text-blue-600 hover:text-blue-800 hover:bg-blue-50'
-                            }`}
-                            title="Nach unten verschieben"
-                          >
-                            <FaArrowDown />
-                          </button>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <div className="min-w-full">
+                  {/* Header */}
+                  <div className="bg-gray-50 grid grid-cols-7 gap-4 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                    <div>Drag</div>
+                    <div>Meter</div>
+                    <div>Facility</div>
+                    <div>Reading</div>
+                    <div>Consumption</div>
+                    <div>Status</div>
+                    <div>Actions</div>
+                  </div>
+                  
+                  <Droppable droppableId="meters-table">
+                    {(provided) => (
+                      <div 
+                        className="bg-white divide-y divide-gray-200"
+                        {...provided.droppableProps}
+                        ref={provided.innerRef}
+                      >
+                        {meters.map((meter, index) => (
+                          <Draggable key={meter.id} draggableId={meter.id.toString()} index={index}>
+                            {(provided, snapshot) => (
+                              <div 
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                className={`hover:bg-gray-50 grid grid-cols-7 gap-4 px-6 py-4 border-b border-gray-200 items-center ${
+                                  snapshot.isDragging ? 'bg-blue-50 shadow-lg' : ''
+                                }`}
+                              >
+                                <div className="flex items-center justify-center">
+                                  <div 
+                                    {...provided.dragHandleProps}
+                                    className="flex items-center justify-center p-2 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing"
+                                    title="Drag to reorder"
+                                  >
+                                    <FaGripVertical />
+                                  </div>
+                                </div>
+                      <div>
                         <div>
                           <div className="text-sm font-medium text-gray-900">{meter.name}</div>
                           <div className="text-sm text-gray-500">Nr: {meter.number}</div>
                           <div className="text-sm text-gray-500">{meter.location}</div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </div>
+                      <div>
                         <div className="text-sm text-gray-900">{meter.facility_name || 'Keine Anlage'}</div>
                         <div className="text-sm text-gray-500">{meter.meterType} • {meter.voltage}V</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </div>
+                      <div>
                         <div className="text-sm font-medium text-gray-900">
                           {meter.currentReading.toLocaleString()} kWh
                         </div>
@@ -738,22 +755,22 @@ const ElectricalMeter = () => {
                         >
                           Stand aktualisieren
                         </button>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </div>
+                      <div>
                         <div className="text-sm font-medium text-gray-900">
                           {meter.consumptionFormatted} kWh
                         </div>
                         <div className="text-xs text-gray-500">
                           {meter.lastReadingDate ? `Letzte Ablesung: ${meter.lastReadingDate}` : 'Keine Ablesung'}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </div>
+                      <div>
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(meter.status)}`}>
                           {getStatusIcon(meter.status)}
                           {meter.status}
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      </div>
+                      <div className="text-sm font-medium">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => openReadingForm(meter)}
@@ -775,11 +792,17 @@ const ElectricalMeter = () => {
                             <FaTrash />
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
+                </div>
+              </DragDropContext>
             )}
           </div>
           

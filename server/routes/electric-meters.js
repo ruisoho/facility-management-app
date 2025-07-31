@@ -30,7 +30,7 @@ router.get('/', (req, res) => {
       params.push(facility_id);
     }
     
-    query += ` ORDER BY em.name`;
+    query += ` ORDER BY em.display_order, em.name`;
     
     const meters = db.prepare(query).all(...params);
     
@@ -171,6 +171,42 @@ router.post('/', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Fehler beim Erstellen des Stromzählers',
+      error: error.message
+    });
+  }
+});
+
+// PUT reorder electric meters
+router.put('/reorder', async (req, res) => {
+  try {
+    const { meterOrders } = req.body;
+    
+    if (!Array.isArray(meterOrders)) {
+      return res.status(400).json({
+        success: false,
+        message: 'meterOrders must be an array'
+      });
+    }
+    
+    // Begin transaction
+    const updateOrder = db.prepare('UPDATE electric_meters SET display_order = ? WHERE id = ?');
+    const transaction = db.transaction((orders) => {
+      for (const order of orders) {
+        updateOrder.run(order.display_order, order.id);
+      }
+    });
+    
+    transaction(meterOrders);
+    
+    res.json({
+      success: true,
+      message: 'Meter order updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating meter order:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating meter order',
       error: error.message
     });
   }
@@ -436,4 +472,5 @@ router.get('/stats/overview', async (req, res) => {
   }
 });
 
+// Update meter order
 module.exports = router;
