@@ -39,19 +39,21 @@ console.log('✅ SQLite database initialized');
 console.log('📊 Database: Local SQLite file');
 console.log('🚀 No external database dependencies required');
 
-// Import routes
+// Import routes (SQLite-based)
 const maintenanceRoutes = require('./routes/maintenance');
-const consumptionRoutes = require('./routes/consumption');
 const taskRoutes = require('./routes/tasks');
 const facilitiesRoutes = require('./routes/facilities');
 const uploadRoutes = require('./routes/upload');
+const electricMetersRoutes = require('./routes/electric-meters');
+const heatGasMetersRoutes = require('./routes/heat-gas-meters');
 
 // API routes
 app.use('/api/maintenance', maintenanceRoutes);
-app.use('/api/consumption', consumptionRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/facilities', facilitiesRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/electric-meters', electricMetersRoutes);
+app.use('/api/heat-gas-meters', heatGasMetersRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

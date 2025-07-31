@@ -2,233 +2,316 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database/sqlite');
 
-// Helper function to format task data
-const formatTask = (row) => {
-  return {
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    category: row.category,
-    location: row.location,
-    priority: row.priority,
-    status: row.status,
-    deadline: row.deadline ? new Date(row.deadline) : null,
-    finishedDate: row.finishedDate ? new Date(row.finishedDate) : null,
-    responsible: {
-      type: row.responsible_type,
-      name: row.responsible_name,
-      contact: row.responsible_contact
-    },
-    facility: row.facility_id ? {
-      id: row.facility_id,
-      name: row.facility_name,
-      location: row.facility_location,
-      type: row.facility_type
-    } : null,
-    facility_id: row.facility_id,
-    estimatedCost: row.estimatedCost,
-    actualCost: row.actualCost,
-    notes: row.notes,
-    createdAt: new Date(row.createdAt),
-    updatedAt: new Date(row.updatedAt)
-  };
-};
-
 // GET all tasks
 router.get('/', async (req, res) => {
   try {
     const { 
-      status, 
-      priority, 
-      category, 
-      responsible,
-      overdue,
-      upcoming,
       page = 1, 
-      limit = 20,
-      sortBy = 'deadline',
-      sortOrder = 'asc'
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      status,
+      priority,
+      category,
+      responsible_type,
+      facility_id
     } = req.query;
 
-    let query = `
-      SELECT t.*, 
-             f.name as facility_name, 
-             f.location as facility_location, 
-             f.type as facility_type
-      FROM tasks t
-      LEFT JOIN facilities f ON t.facility_id = f.id
-      WHERE 1=1
-    `;
+    let query = 'SELECT * FROM tasks';
+    let countQuery = 'SELECT COUNT(*) as total FROM tasks';
     const params = [];
-    
-    // Filter by status
+    const countParams = [];
+    const conditions = [];
+
+    // Add filters
     if (status) {
-      query += ' AND status = ?';
+      conditions.push('status = ?');
       params.push(status);
+      countParams.push(status);
     }
-    
-    // Filter by priority
     if (priority) {
-      query += ' AND priority = ?';
+      conditions.push('priority = ?');
       params.push(priority);
+      countParams.push(priority);
     }
-    
-    // Filter by category
     if (category) {
-      query += ' AND category = ?';
+      conditions.push('category = ?');
       params.push(category);
+      countParams.push(category);
     }
-    
-    // Filter by responsible person/company
-    if (responsible) {
-      query += ' AND responsible_name LIKE ?';
-      params.push(`%${responsible}%`);
+    if (responsible_type) {
+      conditions.push('responsible_type = ?');
+      params.push(responsible_type);
+      countParams.push(responsible_type);
     }
-    
-    // Filter overdue tasks
-    if (overdue === 'true') {
-      query += ' AND deadline < ? AND status NOT IN ("Completed", "Cancelled")';
-      params.push(new Date().toISOString());
+    if (facility_id) {
+      conditions.push('facility_id = ?');
+      params.push(facility_id);
+      countParams.push(facility_id);
     }
-    
-    // Filter upcoming tasks (next 7 days)
-    if (upcoming === 'true') {
-      const today = new Date();
-      const sevenDaysFromNow = new Date();
-      sevenDaysFromNow.setDate(today.getDate() + 7);
-      query += ' AND deadline BETWEEN ? AND ? AND status NOT IN ("Completed", "Cancelled")';
-      params.push(today.toISOString(), sevenDaysFromNow.toISOString());
+
+    if (conditions.length > 0) {
+      const whereClause = ' WHERE ' + conditions.join(' AND ');
+      query += whereClause;
+      countQuery += whereClause;
     }
-    
-    // Add sorting
-    const validSortFields = ['deadline', 'createdAt', 'updatedAt', 'priority', 'status'];
-    const sortField = validSortFields.includes(sortBy) ? sortBy : 'deadline';
-    const order = sortOrder.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    query += ` ORDER BY ${sortField} ${order}`;
-    
-    // Add pagination
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    query += ' LIMIT ? OFFSET ?';
+
+    // Sorting
+    const validSortColumns = ['createdAt', 'deadline', 'priority', 'status', 'title'];
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'createdAt';
+    const order = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    query += ` ORDER BY ${sortColumn} ${order}`;
+
+    // Pagination
+    const offset = (page - 1) * limit;
+    query += ` LIMIT ? OFFSET ?`;
     params.push(parseInt(limit), offset);
-    
+
     const tasks = db.prepare(query).all(...params);
-    const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
-    
-    const formattedTasks = tasks.map(formatTask);
-    
+    const totalResult = db.prepare(countQuery).get(...countParams);
+    const total = totalResult.total;
+
+    // Transform data to match MongoDB format
+    const transformedTasks = tasks.map(task => ({
+      _id: task.id.toString(),
+      what: task.title,
+      description: task.description,
+      insertDate: task.createdAt,
+      category: task.category,
+      whatToDo: task.what_to_do,
+      priority: task.priority,
+      responsible: {
+        type: task.responsible_type,
+        name: task.responsible_name,
+        contact: {
+          phone: task.responsible_phone,
+          email: task.responsible_email
+        },
+        department: task.responsible_department
+      },
+      deadline: task.deadline,
+      finishedDate: task.finishedDate,
+      status: task.status,
+      location: {
+        building: task.location_building,
+        floor: task.location_floor,
+        room: task.location_room,
+        description: task.location_description
+      },
+      estimatedDuration: {
+        hours: task.estimated_hours,
+        minutes: task.estimated_minutes
+      },
+      actualDuration: {
+        hours: task.actual_hours,
+        minutes: task.actual_minutes
+      },
+      cost: {
+        estimated: task.estimatedCost,
+        actual: task.actualCost,
+        currency: task.cost_currency
+      },
+      notes: task.notes,
+      completionNotes: task.completion_notes,
+      tags: task.tags ? JSON.parse(task.tags) : [],
+      relatedMaintenance: task.related_maintenance_id,
+      recurring: {
+        isRecurring: Boolean(task.is_recurring),
+        frequency: task.recurring_frequency,
+        nextOccurrence: task.next_occurrence
+      },
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt
+    }));
+
     res.json({
-      success: true,
-      data: formattedTasks,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: totalTasks,
-        pages: Math.ceil(totalTasks / parseInt(limit))
+      data: {
+        tasks: transformedTasks,
+        totalPages: Math.ceil(total / limit),
+        currentPage: parseInt(page),
+        total
       }
     });
   } catch (error) {
     console.error('Error fetching tasks:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error fetching tasks', 
-      error: error.message 
-    });
+    res.status(500).json({ message: error.message });
   }
 });
 
 // GET single task
 router.get('/:id', async (req, res) => {
   try {
-    const task = db.prepare(`
-    SELECT t.*, 
-           f.name as facility_name, 
-           f.location as facility_location, 
-           f.type as facility_type
-    FROM tasks t
-    LEFT JOIN facilities f ON t.facility_id = f.id
-    WHERE t.id = ?
-  `).get(req.params.id);
+    const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
     
     if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
+      return res.status(404).json({ message: 'Task not found' });
     }
-    
-    res.json({ success: true, data: formatTask(task) });
+
+    // Get attachments
+    const attachments = db.prepare('SELECT * FROM attachments WHERE entity_type = ? AND entity_id = ?')
+      .all('task', req.params.id);
+
+    // Transform to MongoDB format
+    const transformedTask = {
+      _id: task.id.toString(),
+      what: task.title,
+      description: task.description,
+      insertDate: task.createdAt,
+      category: task.category,
+      whatToDo: task.what_to_do,
+      priority: task.priority,
+      responsible: {
+        type: task.responsible_type,
+        name: task.responsible_name,
+        contact: {
+          phone: task.responsible_phone,
+          email: task.responsible_email
+        },
+        department: task.responsible_department
+      },
+      deadline: task.deadline,
+      finishedDate: task.finishedDate,
+      status: task.status,
+      location: {
+        building: task.location_building,
+        floor: task.location_floor,
+        room: task.location_room,
+        description: task.location_description
+      },
+      estimatedDuration: {
+        hours: task.estimated_hours,
+        minutes: task.estimated_minutes
+      },
+      actualDuration: {
+        hours: task.actual_hours,
+        minutes: task.actual_minutes
+      },
+      cost: {
+        estimated: task.estimatedCost,
+        actual: task.actualCost,
+        currency: task.cost_currency
+      },
+      attachments: attachments.map(att => ({
+        filename: att.filename,
+        originalName: att.original_name,
+        path: att.path,
+        uploadDate: att.upload_date,
+        size: att.size,
+        mimetype: att.mimetype,
+        description: att.description
+      })),
+      notes: task.notes,
+      completionNotes: task.completion_notes,
+      tags: task.tags ? JSON.parse(task.tags) : [],
+      relatedMaintenance: task.related_maintenance_id,
+      recurring: {
+        isRecurring: Boolean(task.is_recurring),
+        frequency: task.recurring_frequency,
+        nextOccurrence: task.next_occurrence
+      },
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt
+    };
+
+    res.json(transformedTask);
   } catch (error) {
     console.error('Error fetching task:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error fetching task', 
-      error: error.message 
-    });
+    res.status(500).json({ message: error.message });
   }
 });
 
-// POST create task
+// POST create new task
 router.post('/', async (req, res) => {
   try {
     const {
-      title,
+      what,
       description,
-      category,
+      category = 'Other',
+      whatToDo,
       priority = 'Medium',
-      status = 'Pending',
-      deadline,
       responsible,
-      estimatedCost,
-      notes
+      deadline,
+      status = 'Pending',
+      location = {},
+      estimatedDuration = {},
+      cost = {},
+      notes,
+      tags = [],
+      relatedMaintenance,
+      recurring = {},
+      facility_id
     } = req.body;
 
-    if (!title) {
+    // Validation
+    if (!what || !whatToDo || !responsible?.type || !responsible?.name || !deadline) {
       return res.status(400).json({ 
-        success: false, 
-        message: 'Title is required' 
+        message: 'Missing required fields: what, whatToDo, responsible (type, name), deadline' 
       });
     }
 
-    const insertTask = db.prepare(`
+    const insertQuery = `
       INSERT INTO tasks (
-        title, description, category, priority, status, deadline,
-        responsible_type, responsible_name, responsible_contact,
-        estimatedCost, notes, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+        what, description, category, what_to_do, priority, responsible_type,
+        responsible_name, responsible_phone, responsible_email, responsible_department,
+        deadline, status, location_building, location_floor, location_room,
+        location_description, estimated_hours, estimated_minutes, estimated_cost,
+        cost_currency, notes, tags, related_maintenance_id, is_recurring,
+        recurring_frequency, next_occurrence, facility_id, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-    const now = new Date().toISOString();
-    const result = insertTask.run(
-      title,
+    const result = db.prepare(insertQuery).run(
+      what,
       description,
       category,
+      whatToDo,
       priority,
-      status,
+      responsible.type,
+      responsible.name,
+      responsible.contact?.phone,
+      responsible.contact?.email,
+      responsible.department,
       deadline,
-      responsible?.type,
-      responsible?.name,
-      responsible?.contact,
-      estimatedCost,
+      status,
+      location.building,
+      location.floor,
+      location.room,
+      location.description,
+      estimatedDuration.hours || 0,
+      estimatedDuration.minutes || 0,
+      cost.estimated || 0,
+      cost.currency || 'EUR',
       notes,
-      now,
-      now
+      tags.length > 0 ? JSON.stringify(tags) : null,
+      relatedMaintenance,
+      recurring.isRecurring ? 1 : 0,
+      recurring.frequency,
+      recurring.nextOccurrence,
+      facility_id,
+      new Date().toISOString()
     );
 
-    const newTask = db.prepare(`
-      SELECT t.*, 
-             f.name as facility_name, 
-             f.location as facility_location, 
-             f.type as facility_type
-      FROM tasks t
-      LEFT JOIN facilities f ON t.facility_id = f.id
-      WHERE t.id = ?
-    `).get(result.lastInsertRowid);
+    // Fetch the created task
+    const newTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(result.lastInsertRowid);
     
-    res.status(201).json({ success: true, data: formatTask(newTask) });
+    res.status(201).json({
+      _id: newTask.id.toString(),
+      what: newTask.what,
+      description: newTask.description,
+      category: newTask.category,
+      priority: newTask.priority,
+      status: newTask.status,
+      deadline: newTask.deadline,
+      responsible: {
+        type: newTask.responsible_type,
+        name: newTask.responsible_name
+      },
+      createdAt: newTask.createdAt,
+      updatedAt: newTask.updatedAt
+    });
   } catch (error) {
     console.error('Error creating task:', error);
-    res.status(400).json({ 
-      success: false, 
-      message: 'Error creating task', 
-      error: error.message 
-    });
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -236,107 +319,195 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const taskId = req.params.id;
-    const updates = req.body;
     
     // Check if task exists
-    const existingTask = db.prepare(`
-      SELECT t.*, 
-             f.name as facility_name, 
-             f.location as facility_location, 
-             f.type as facility_type
-      FROM tasks t
-      LEFT JOIN facilities f ON t.facility_id = f.id
-      WHERE t.id = ?
-    `).get(taskId);
-    if (!existingTask) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
+    const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Task not found' });
     }
 
-    // Build update query dynamically
-    const updateFields = [];
-    const params = [];
-    
-    const allowedFields = [
-      'title', 'description', 'category', 'priority', 'status', 'deadline',
-      'finishedDate', 'estimatedCost', 'actualCost', 'notes'
-    ];
-    
-    allowedFields.forEach(field => {
-      if (updates[field] !== undefined) {
-        updateFields.push(`${field} = ?`);
-        params.push(updates[field]);
-      }
-    });
-    
-    // Handle responsible object
-    if (updates.responsible) {
-      if (updates.responsible.type !== undefined) {
-        updateFields.push('responsible_type = ?');
-        params.push(updates.responsible.type);
-      }
-      if (updates.responsible.name !== undefined) {
-        updateFields.push('responsible_name = ?');
-        params.push(updates.responsible.name);
-      }
-      if (updates.responsible.contact !== undefined) {
-        updateFields.push('responsible_contact = ?');
-        params.push(updates.responsible.contact);
-      }
-    }
-    
-    if (updateFields.length === 0) {
-      return res.status(400).json({ success: false, message: 'No valid fields to update' });
-    }
-    
-    // Add updatedAt
-    updateFields.push('updatedAt = ?');
-    params.push(new Date().toISOString());
-    
-    // Add WHERE clause parameter
-    params.push(taskId);
-    
-    const updateQuery = `UPDATE tasks SET ${updateFields.join(', ')} WHERE id = ?`;
-    db.prepare(updateQuery).run(...params);
-    
+    const {
+      what,
+      description,
+      category,
+      whatToDo,
+      priority,
+      responsible,
+      deadline,
+      finishedDate,
+      status,
+      location = {},
+      estimatedDuration = {},
+      actualDuration = {},
+      cost = {},
+      notes,
+      completionNotes,
+      tags = [],
+      relatedMaintenance,
+      recurring = {},
+      facility_id
+    } = req.body;
+
+    const updateQuery = `
+      UPDATE tasks SET
+        what = COALESCE(?, what),
+        description = COALESCE(?, description),
+        category = COALESCE(?, category),
+        what_to_do = COALESCE(?, what_to_do),
+        priority = COALESCE(?, priority),
+        responsible_type = COALESCE(?, responsible_type),
+        responsible_name = COALESCE(?, responsible_name),
+        responsible_phone = COALESCE(?, responsible_phone),
+        responsible_email = COALESCE(?, responsible_email),
+        responsible_department = COALESCE(?, responsible_department),
+        deadline = COALESCE(?, deadline),
+        finished_date = COALESCE(?, finished_date),
+        status = COALESCE(?, status),
+        location_building = COALESCE(?, location_building),
+        location_floor = COALESCE(?, location_floor),
+        location_room = COALESCE(?, location_room),
+        location_description = COALESCE(?, location_description),
+        estimated_hours = COALESCE(?, estimated_hours),
+        estimated_minutes = COALESCE(?, estimated_minutes),
+        actual_hours = COALESCE(?, actual_hours),
+        actual_minutes = COALESCE(?, actual_minutes),
+        estimated_cost = COALESCE(?, estimated_cost),
+        actual_cost = COALESCE(?, actual_cost),
+        cost_currency = COALESCE(?, cost_currency),
+        notes = COALESCE(?, notes),
+        completion_notes = COALESCE(?, completion_notes),
+        tags = COALESCE(?, tags),
+        related_maintenance_id = COALESCE(?, related_maintenance_id),
+        is_recurring = COALESCE(?, is_recurring),
+        recurring_frequency = COALESCE(?, recurring_frequency),
+        next_occurrence = COALESCE(?, next_occurrence),
+        facility_id = COALESCE(?, facility_id),
+        updatedAt = ?
+      WHERE id = ?
+    `;
+
+    db.prepare(updateQuery).run(
+      what,
+      description,
+      category,
+      whatToDo,
+      priority,
+      responsible?.type,
+      responsible?.name,
+      responsible?.contact?.phone,
+      responsible?.contact?.email,
+      responsible?.department,
+      deadline,
+      finishedDate,
+      status,
+      location.building,
+      location.floor,
+      location.room,
+      location.description,
+      estimatedDuration.hours,
+      estimatedDuration.minutes,
+      actualDuration.hours,
+      actualDuration.minutes,
+      cost.estimated,
+      cost.actual,
+      cost.currency,
+      notes,
+      completionNotes,
+      tags.length > 0 ? JSON.stringify(tags) : null,
+      relatedMaintenance,
+      recurring.isRecurring !== undefined ? (recurring.isRecurring ? 1 : 0) : undefined,
+      recurring.frequency,
+      recurring.nextOccurrence,
+      facility_id,
+      new Date().toISOString(),
+      taskId
+    );
+
     // Fetch updated task
-    const updatedTask = db.prepare(`
-      SELECT t.*, 
-             f.name as facility_name, 
-             f.location as facility_location, 
-             f.type as facility_type
-      FROM tasks t
-      LEFT JOIN facilities f ON t.facility_id = f.id
-      WHERE t.id = ?
-    `).get(taskId);
+    const updatedTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
     
-    res.json({ success: true, data: formatTask(updatedTask) });
+    res.json({
+      _id: updatedTask.id.toString(),
+      what: updatedTask.what,
+      status: updatedTask.status,
+      priority: updatedTask.priority,
+      deadline: updatedTask.deadline,
+      updatedAt: updatedTask.updatedAt
+    });
   } catch (error) {
     console.error('Error updating task:', error);
-    res.status(400).json({ 
-      success: false, 
-      message: 'Error updating task', 
-      error: error.message 
-    });
+    res.status(500).json({ message: error.message });
   }
 });
 
 // DELETE task
 router.delete('/:id', async (req, res) => {
   try {
-    const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
+    const taskId = req.params.id;
     
-    if (result.changes === 0) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
+    // Check if task exists
+    const existing = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Task not found' });
     }
+
+    // Delete associated attachments first
+    db.prepare('DELETE FROM attachments WHERE entity_type = ? AND entity_id = ?').run('task', taskId);
     
-    res.json({ success: true, message: 'Task deleted successfully' });
+    // Delete the task
+    db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+    
+    res.json({ message: 'Task deleted successfully' });
   } catch (error) {
     console.error('Error deleting task:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error deleting task', 
-      error: error.message 
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET task statistics
+router.get('/stats/dashboard', async (req, res) => {
+  try {
+    const stats = {
+      total: db.prepare('SELECT COUNT(*) as count FROM tasks').get().count,
+      pending: db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ?').get('Pending').count,
+      inProgress: db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ?').get('In Progress').count,
+      completed: db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ?').get('Completed').count,
+      overdue: db.prepare("SELECT COUNT(*) as count FROM tasks WHERE status != ? AND deadline < date('now')").get('Completed').count,
+      highPriority: db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority IN (?, ?)').get('High', 'Critical').count
+    };
+
+    // Get tasks by category
+    const categoryStats = db.prepare(`
+      SELECT category, COUNT(*) as count 
+      FROM tasks 
+      GROUP BY category 
+      ORDER BY count DESC
+    `).all();
+
+    // Get upcoming deadlines (next 7 days)
+    const upcomingTasks = db.prepare(`
+      SELECT id, title, deadline, priority, status
+      FROM tasks 
+      WHERE deadline BETWEEN date('now') AND date('now', '+7 days')
+      AND status != 'Completed'
+      ORDER BY deadline ASC
+      LIMIT 10
+    `).all();
+
+    res.json({
+      summary: stats,
+      categoryBreakdown: categoryStats,
+      upcomingDeadlines: upcomingTasks.map(task => ({
+        _id: task.id.toString(),
+        what: task.title,
+        deadline: task.deadline,
+        priority: task.priority,
+        status: task.status
+      }))
     });
+  } catch (error) {
+    console.error('Error fetching task statistics:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -344,170 +515,51 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/complete', async (req, res) => {
   try {
     const taskId = req.params.id;
-    const { notes } = req.body;
     
+    // Check if task exists
+    const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    const { completionNotes, actualCost, actualDuration } = req.body;
+    const finishedDate = new Date().toISOString();
+
     const updateQuery = `
-      UPDATE tasks 
-      SET status = 'Completed', finishedDate = ?, notes = COALESCE(?, notes), updatedAt = ?
+      UPDATE tasks SET
+        status = 'Completed',
+        finished_date = ?,
+        completion_notes = COALESCE(?, completion_notes),
+        actual_cost = COALESCE(?, actual_cost),
+        actual_hours = COALESCE(?, actual_hours),
+        actual_minutes = COALESCE(?, actual_minutes),
+        updatedAt = ?
       WHERE id = ?
     `;
-    
-    const now = new Date().toISOString();
-    const result = db.prepare(updateQuery).run(now, notes, now, taskId);
-    
-    if (result.changes === 0) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
-    }
-    
-    const updatedTask = db.prepare(`
-      SELECT t.*, 
-             f.name as facility_name, 
-             f.location as facility_location, 
-             f.type as facility_type
-      FROM tasks t
-      LEFT JOIN facilities f ON t.facility_id = f.id
-      WHERE t.id = ?
-    `).get(taskId);
-    
-    res.json({ success: true, data: formatTask(updatedTask) });
-  } catch (error) {
-    console.error('Error completing task:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error completing task', 
-      error: error.message 
-    });
-  }
-});
 
-// POST update task status
-router.post('/:id/status', async (req, res) => {
-  try {
-    const taskId = req.params.id;
-    const { status } = req.body;
-    
-    if (!status) {
-      return res.status(400).json({ success: false, message: 'Status is required' });
-    }
-    
-    const updateQuery = 'UPDATE tasks SET status = ?, updatedAt = ? WHERE id = ?';
-    const result = db.prepare(updateQuery).run(status, new Date().toISOString(), taskId);
-    
-    if (result.changes === 0) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
-    }
-    
-    const updatedTask = db.prepare(`
-      SELECT t.*, 
-             f.name as facility_name, 
-             f.location as facility_location, 
-             f.type as facility_type
-      FROM tasks t
-      LEFT JOIN facilities f ON t.facility_id = f.id
-      WHERE t.id = ?
-    `).get(taskId);
-    
-    res.json({ success: true, data: formatTask(updatedTask) });
-  } catch (error) {
-    console.error('Error updating task status:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error updating task status', 
-      error: error.message 
-    });
-  }
-});
+    db.prepare(updateQuery).run(
+      finishedDate,
+      completionNotes,
+      actualCost,
+      actualDuration?.hours,
+      actualDuration?.minutes,
+      new Date().toISOString(),
+      taskId
+    );
 
-// GET task statistics
-router.get('/stats/overview', async (req, res) => {
-  try {
-    const today = new Date().toISOString();
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(new Date().getDate() + 7);
-    const sevenDaysFromNowISO = sevenDaysFromNow.toISOString();
-    
-    const firstDayOfMonth = new Date();
-    firstDayOfMonth.setDate(1);
-    firstDayOfMonth.setHours(0, 0, 0, 0);
-    const firstDayOfMonthISO = firstDayOfMonth.toISOString();
-    
-    // Total tasks
-    const totalTasks = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
-    
-    // Tasks by status
-    const tasksByStatus = db.prepare(`
-      SELECT status as _id, COUNT(*) as count 
-      FROM tasks 
-      GROUP BY status 
-      ORDER BY count DESC
-    `).all();
-    
-    // Tasks by priority
-    const tasksByPriority = db.prepare(`
-      SELECT priority as _id, COUNT(*) as count 
-      FROM tasks 
-      GROUP BY priority 
-      ORDER BY count DESC
-    `).all();
-    
-    // Tasks by category
-    const tasksByCategory = db.prepare(`
-      SELECT category as _id, COUNT(*) as count 
-      FROM tasks 
-      WHERE category IS NOT NULL
-      GROUP BY category 
-      ORDER BY count DESC
-    `).all();
-    
-    // Overdue tasks
-    const overdueTasks = db.prepare(`
-      SELECT COUNT(*) as count 
-      FROM tasks 
-      WHERE deadline < ? AND status NOT IN ('Completed', 'Cancelled')
-    `).get(today).count;
-    
-    // Upcoming tasks (next 7 days)
-    const upcomingTasks = db.prepare(`
-      SELECT COUNT(*) as count 
-      FROM tasks 
-      WHERE deadline BETWEEN ? AND ? AND status NOT IN ('Completed', 'Cancelled')
-    `).get(today, sevenDaysFromNowISO).count;
-    
-    // Completed this month
-    const completedThisMonth = db.prepare(`
-      SELECT COUNT(*) as count 
-      FROM tasks 
-      WHERE status = 'Completed' AND finishedDate >= ?
-    `).get(firstDayOfMonthISO).count;
-    
-    // Tasks by responsible type
-    const tasksByResponsibleType = db.prepare(`
-      SELECT responsible_type as _id, COUNT(*) as count 
-      FROM tasks 
-      WHERE responsible_type IS NOT NULL
-      GROUP BY responsible_type
-    `).all();
+    // Fetch updated task
+    const updatedTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
     
     res.json({
-      success: true,
-      data: {
-        totalTasks,
-        tasksByStatus,
-        tasksByPriority,
-        tasksByCategory,
-        overdueTasks,
-        upcomingTasks,
-        completedThisMonth,
-        tasksByResponsibleType
-      }
+      _id: updatedTask.id.toString(),
+      status: updatedTask.status,
+      finishedDate: updatedTask.finished_date,
+      completionNotes: updatedTask.completion_notes,
+      updatedAt: updatedTask.updatedAt
     });
   } catch (error) {
-    console.error('Error fetching task stats:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error fetching task statistics', 
-      error: error.message 
-    });
+    console.error('Error completing task:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 

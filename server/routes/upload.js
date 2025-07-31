@@ -1,357 +1,419 @@
 const express = require('express');
+const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const router = express.Router();
-const Maintenance = require('../models/Maintenance');
-const Task = require('../models/Task');
-
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const db = require('../database/sqlite');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(uploadsDir, req.params.type || 'general');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
     }
-    cb(null, uploadPath);
+    cb(null, uploadDir);
   },
-  filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
+  filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const extension = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, extension);
-    cb(null, `${baseName}-${uniqueSuffix}${extension}`);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
-
-// File filter for security
-const fileFilter = (req, file, cb) => {
-  // Allowed file types
-  const allowedTypes = [
-    'application/pdf',
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/gif',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'text/plain',
-    'text/csv'
-  ];
-
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Invalid file type. Only PDF, images, Word, Excel, and text files are allowed.'), false);
-  }
-};
 
 const upload = multer({
   storage: storage,
-  fileFilter: fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 5 // Maximum 5 files per request
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow common file types
+    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|txt|csv|xlsx|xls/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only images, PDFs, and documents are allowed'));
+    }
   }
 });
 
-// POST upload files for maintenance records
-router.post('/maintenance/:id', upload.array('files', 5), async (req, res) => {
+// POST upload file for task
+router.post('/task/:taskId', upload.single('file'), async (req, res) => {
   try {
-    const maintenanceId = req.params.id;
-    const maintenance = await Maintenance.findById(maintenanceId);
-    
-    if (!maintenance) {
-      // Clean up uploaded files if maintenance record doesn't exist
-      if (req.files) {
-        req.files.forEach(file => {
-          fs.unlink(file.path, (err) => {
-            if (err) console.error('Error deleting file:', err);
-          });
-        });
-      }
-      return res.status(404).json({ message: 'Maintenance record not found' });
+    const { taskId } = req.params;
+    const { description } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ message: 'No files uploaded' });
+    // Check if task exists
+    const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
     }
 
-    // Add file information to maintenance record
-    const uploadedFiles = req.files.map(file => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      size: file.size,
-      mimetype: file.mimetype,
-      uploadDate: new Date()
-    }));
+    // Insert attachment record
+    const insertQuery = `
+      INSERT INTO attachments (
+        filename, original_name, path, size, mimetype, description,
+        entity_type, entity_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-    maintenance.proofDocuments.push(...uploadedFiles);
-    await maintenance.save();
+    const result = db.prepare(insertQuery).run(
+      req.file.filename,
+      req.file.originalname,
+      req.file.path,
+      req.file.size,
+      req.file.mimetype,
+      description || '',
+      'task',
+      taskId
+    );
 
-    res.json({
-      message: `${req.files.length} file(s) uploaded successfully`,
-      files: uploadedFiles,
-      maintenanceId: maintenanceId
+    // Get the created attachment
+    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(result.lastInsertRowid);
+
+    res.status(201).json({
+      id: attachment.id,
+      filename: attachment.filename,
+      originalName: attachment.original_name,
+      path: attachment.path,
+      size: attachment.size,
+      mimetype: attachment.mimetype,
+      description: attachment.description,
+      uploadDate: attachment.upload_date,
+      message: 'File uploaded successfully'
     });
   } catch (error) {
-    // Clean up uploaded files on error
-    if (req.files) {
-      req.files.forEach(file => {
-        fs.unlink(file.path, (err) => {
-          if (err) console.error('Error deleting file:', err);
-        });
-      });
+    console.error('Error uploading file for task:', error);
+    
+    // Clean up uploaded file if database operation failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
     }
+    
     res.status(500).json({ message: error.message });
   }
 });
 
-// POST upload files for tasks
-router.post('/task/:id', upload.array('files', 5), async (req, res) => {
+// POST upload file for maintenance
+router.post('/maintenance/:maintenanceId', upload.single('file'), async (req, res) => {
   try {
-    const taskId = req.params.id;
-    const task = await Task.findById(taskId);
-    
-    if (!task) {
-      // Clean up uploaded files if task doesn't exist
-      if (req.files) {
-        req.files.forEach(file => {
-          fs.unlink(file.path, (err) => {
-            if (err) console.error('Error deleting file:', err);
-          });
-        });
-      }
-      return res.status(404).json({ message: 'Task not found' });
+    const { maintenanceId } = req.params;
+    const { description } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
     }
+
+    // Check if maintenance record exists
+    const maintenance = db.prepare('SELECT id FROM maintenance WHERE id = ?').get(maintenanceId);
+    if (!maintenance) {
+      return res.status(404).json({ message: 'Maintenance record not found' });
+    }
+
+    // Insert attachment record
+    const insertQuery = `
+      INSERT INTO attachments (
+        filename, original_name, path, size, mimetype, description,
+        entity_type, entity_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const result = db.prepare(insertQuery).run(
+      req.file.filename,
+      req.file.originalname,
+      req.file.path,
+      req.file.size,
+      req.file.mimetype,
+      description || '',
+      'maintenance',
+      maintenanceId
+    );
+
+    // Get the created attachment
+    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(result.lastInsertRowid);
+
+    res.status(201).json({
+      id: attachment.id,
+      filename: attachment.filename,
+      originalName: attachment.original_name,
+      path: attachment.path,
+      size: attachment.size,
+      mimetype: attachment.mimetype,
+      description: attachment.description,
+      uploadDate: attachment.upload_date,
+      message: 'File uploaded successfully'
+    });
+  } catch (error) {
+    console.error('Error uploading file for maintenance:', error);
+    
+    // Clean up uploaded file if database operation failed
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// POST upload multiple files
+router.post('/multiple/:entityType/:entityId', upload.array('files', 5), async (req, res) => {
+  try {
+    const { entityType, entityId } = req.params;
+    const { descriptions } = req.body;
 
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
     }
 
-    // Add file information to task
-    const uploadedFiles = req.files.map(file => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      size: file.size,
-      mimetype: file.mimetype,
-      uploadDate: new Date(),
-      description: req.body.description || ''
-    }));
+    if (!['task', 'maintenance'].includes(entityType)) {
+      return res.status(400).json({ message: 'Invalid entity type' });
+    }
 
-    task.attachments.push(...uploadedFiles);
-    await task.save();
+    // Check if entity exists
+    const tableName = entityType === 'task' ? 'tasks' : 'maintenance';
+    const entity = db.prepare(`SELECT id FROM ${tableName} WHERE id = ?`).get(entityId);
+    if (!entity) {
+      return res.status(404).json({ message: `${entityType} not found` });
+    }
 
-    res.json({
-      message: `${req.files.length} file(s) uploaded successfully`,
-      files: uploadedFiles,
-      taskId: taskId
+    const uploadedFiles = [];
+    const descriptionsArray = descriptions ? JSON.parse(descriptions) : [];
+
+    // Insert each file
+    const insertQuery = `
+      INSERT INTO attachments (
+        filename, original_name, path, size, mimetype, description,
+        entity_type, entity_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
+      const description = descriptionsArray[i] || '';
+
+      try {
+        const result = db.prepare(insertQuery).run(
+          file.filename,
+          file.originalname,
+          file.path,
+          file.size,
+          file.mimetype,
+          description,
+          entityType,
+          entityId
+        );
+
+        const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(result.lastInsertRowid);
+        
+        uploadedFiles.push({
+          id: attachment.id,
+          filename: attachment.filename,
+          originalName: attachment.original_name,
+          path: attachment.path,
+          size: attachment.size,
+          mimetype: attachment.mimetype,
+          description: attachment.description,
+          uploadDate: attachment.upload_date
+        });
+      } catch (error) {
+        console.error(`Error inserting file ${file.filename}:`, error);
+        // Clean up the file if database operation failed
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      }
+    }
+
+    res.status(201).json({
+      message: `${uploadedFiles.length} files uploaded successfully`,
+      files: uploadedFiles
     });
   } catch (error) {
-    // Clean up uploaded files on error
+    console.error('Error uploading multiple files:', error);
+    
+    // Clean up uploaded files if operation failed
     if (req.files) {
       req.files.forEach(file => {
-        fs.unlink(file.path, (err) => {
-          if (err) console.error('Error deleting file:', err);
-        });
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
       });
     }
+    
     res.status(500).json({ message: error.message });
   }
 });
 
 // GET download file
-router.get('/download/:type/:filename', (req, res) => {
+router.get('/download/:attachmentId', async (req, res) => {
   try {
-    const { type, filename } = req.params;
-    const filePath = path.join(uploadsDir, type, filename);
-    
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
+    const { attachmentId } = req.params;
+
+    // Get attachment info
+    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(attachmentId);
+    if (!attachment) {
       return res.status(404).json({ message: 'File not found' });
     }
 
-    // Security check - ensure the file is within the uploads directory
-    const resolvedPath = path.resolve(filePath);
-    const uploadsPath = path.resolve(uploadsDir);
-    
-    if (!resolvedPath.startsWith(uploadsPath)) {
-      return res.status(403).json({ message: 'Access denied' });
+    // Check if file exists on disk
+    if (!fs.existsSync(attachment.path)) {
+      return res.status(404).json({ message: 'File not found on disk' });
     }
 
-    res.download(filePath, (err) => {
-      if (err) {
-        console.error('Download error:', err);
-        res.status(500).json({ message: 'Error downloading file' });
-      }
-    });
+    // Set appropriate headers
+    res.setHeader('Content-Disposition', `attachment; filename="${attachment.original_name}"`);
+    res.setHeader('Content-Type', attachment.mimetype);
+
+    // Stream the file
+    const fileStream = fs.createReadStream(attachment.path);
+    fileStream.pipe(res);
   } catch (error) {
+    console.error('Error downloading file:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// GET view file (for images and PDFs)
-router.get('/view/:type/:filename', (req, res) => {
+// DELETE file
+router.delete('/:attachmentId', async (req, res) => {
   try {
-    const { type, filename } = req.params;
-    const filePath = path.join(uploadsDir, type, filename);
-    
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
+    const { attachmentId } = req.params;
+
+    // Get attachment info
+    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(attachmentId);
+    if (!attachment) {
       return res.status(404).json({ message: 'File not found' });
     }
 
-    // Security check
-    const resolvedPath = path.resolve(filePath);
-    const uploadsPath = path.resolve(uploadsDir);
-    
-    if (!resolvedPath.startsWith(uploadsPath)) {
-      return res.status(403).json({ message: 'Access denied' });
+    // Delete file from disk
+    if (fs.existsSync(attachment.path)) {
+      fs.unlinkSync(attachment.path);
     }
 
-    // Set appropriate content type
-    const ext = path.extname(filename).toLowerCase();
-    let contentType = 'application/octet-stream';
-    
-    switch (ext) {
-      case '.pdf':
-        contentType = 'application/pdf';
-        break;
-      case '.jpg':
-      case '.jpeg':
-        contentType = 'image/jpeg';
-        break;
-      case '.png':
-        contentType = 'image/png';
-        break;
-      case '.gif':
-        contentType = 'image/gif';
-        break;
-    }
-
-    res.setHeader('Content-Type', contentType);
-    res.sendFile(filePath);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// DELETE file from maintenance record
-router.delete('/maintenance/:maintenanceId/file/:filename', async (req, res) => {
-  try {
-    const { maintenanceId, filename } = req.params;
-    const maintenance = await Maintenance.findById(maintenanceId);
-    
-    if (!maintenance) {
-      return res.status(404).json({ message: 'Maintenance record not found' });
-    }
-
-    // Find and remove file from database
-    const fileIndex = maintenance.proofDocuments.findIndex(doc => doc.filename === filename);
-    if (fileIndex === -1) {
-      return res.status(404).json({ message: 'File not found in maintenance record' });
-    }
-
-    const fileDoc = maintenance.proofDocuments[fileIndex];
-    maintenance.proofDocuments.splice(fileIndex, 1);
-    await maintenance.save();
-
-    // Delete physical file
-    if (fs.existsSync(fileDoc.path)) {
-      fs.unlink(fileDoc.path, (err) => {
-        if (err) console.error('Error deleting physical file:', err);
-      });
-    }
+    // Delete from database
+    db.prepare('DELETE FROM attachments WHERE id = ?').run(attachmentId);
 
     res.json({ message: 'File deleted successfully' });
   } catch (error) {
+    console.error('Error deleting file:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// DELETE file from task
-router.delete('/task/:taskId/file/:filename', async (req, res) => {
+// GET files for entity
+router.get('/:entityType/:entityId', async (req, res) => {
   try {
-    const { taskId, filename } = req.params;
-    const task = await Task.findById(taskId);
-    
-    if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
+    const { entityType, entityId } = req.params;
+
+    if (!['task', 'maintenance'].includes(entityType)) {
+      return res.status(400).json({ message: 'Invalid entity type' });
     }
 
-    // Find and remove file from database
-    const fileIndex = task.attachments.findIndex(att => att.filename === filename);
-    if (fileIndex === -1) {
-      return res.status(404).json({ message: 'File not found in task' });
-    }
+    const attachments = db.prepare('SELECT * FROM attachments WHERE entity_type = ? AND entity_id = ? ORDER BY upload_date DESC')
+      .all(entityType, entityId);
 
-    const fileDoc = task.attachments[fileIndex];
-    task.attachments.splice(fileIndex, 1);
-    await task.save();
+    const transformedAttachments = attachments.map(att => ({
+      id: att.id,
+      filename: att.filename,
+      originalName: att.original_name,
+      path: att.path,
+      size: att.size,
+      mimetype: att.mimetype,
+      description: att.description,
+      uploadDate: att.upload_date,
+      downloadUrl: `/api/upload/download/${att.id}`
+    }));
 
-    // Delete physical file
-    if (fs.existsSync(fileDoc.path)) {
-      fs.unlink(fileDoc.path, (err) => {
-        if (err) console.error('Error deleting physical file:', err);
-      });
-    }
-
-    res.json({ message: 'File deleted successfully' });
+    res.json(transformedAttachments);
   } catch (error) {
+    console.error('Error fetching files:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// GET file information
-router.get('/info/:type/:filename', (req, res) => {
+// PUT update file description
+router.put('/:attachmentId/description', async (req, res) => {
   try {
-    const { type, filename } = req.params;
-    const filePath = path.join(uploadsDir, type, filename);
-    
-    if (!fs.existsSync(filePath)) {
+    const { attachmentId } = req.params;
+    const { description } = req.body;
+
+    // Check if attachment exists
+    const existing = db.prepare('SELECT id FROM attachments WHERE id = ?').get(attachmentId);
+    if (!existing) {
       return res.status(404).json({ message: 'File not found' });
     }
 
-    const stats = fs.statSync(filePath);
-    
+    // Update description
+    db.prepare('UPDATE attachments SET description = ? WHERE id = ?').run(description || '', attachmentId);
+
+    res.json({ message: 'File description updated successfully' });
+  } catch (error) {
+    console.error('Error updating file description:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// GET upload statistics
+router.get('/stats/dashboard', async (req, res) => {
+  try {
+    const stats = {
+      totalFiles: db.prepare('SELECT COUNT(*) as count FROM attachments').get().count,
+      taskFiles: db.prepare('SELECT COUNT(*) as count FROM attachments WHERE entity_type = ?').get('task').count,
+      maintenanceFiles: db.prepare('SELECT COUNT(*) as count FROM attachments WHERE entity_type = ?').get('maintenance').count,
+      totalSize: db.prepare('SELECT SUM(size) as total FROM attachments').get().total || 0
+    };
+
+    // Get file types breakdown
+    const fileTypes = db.prepare(`
+      SELECT 
+        CASE 
+          WHEN mimetype LIKE 'image/%' THEN 'Images'
+          WHEN mimetype LIKE 'application/pdf' THEN 'PDFs'
+          WHEN mimetype LIKE 'application/vnd.ms-excel%' OR mimetype LIKE 'application/vnd.openxmlformats-officedocument.spreadsheetml%' THEN 'Spreadsheets'
+          WHEN mimetype LIKE 'application/msword%' OR mimetype LIKE 'application/vnd.openxmlformats-officedocument.wordprocessingml%' THEN 'Documents'
+          ELSE 'Others'
+        END as type,
+        COUNT(*) as count
+      FROM attachments 
+      GROUP BY type
+      ORDER BY count DESC
+    `).all();
+
+    // Get recent uploads
+    const recentUploads = db.prepare(`
+      SELECT a.*, 
+        CASE 
+          WHEN a.entity_type = 'task' THEN t.what
+          WHEN a.entity_type = 'maintenance' THEN m.system
+        END as entity_name
+      FROM attachments a
+      LEFT JOIN tasks t ON a.entity_type = 'task' AND a.entity_id = t.id
+      LEFT JOIN maintenance m ON a.entity_type = 'maintenance' AND a.entity_id = m.id
+      ORDER BY a.upload_date DESC
+      LIMIT 10
+    `).all();
+
     res.json({
-      filename: filename,
-      size: stats.size,
-      created: stats.birthtime,
-      modified: stats.mtime,
-      type: type
+      summary: stats,
+      fileTypeBreakdown: fileTypes,
+      recentUploads: recentUploads.map(upload => ({
+        id: upload.id,
+        filename: upload.original_name,
+        entityType: upload.entity_type,
+        entityName: upload.entity_name,
+        uploadDate: upload.upload_date,
+        size: upload.size
+      }))
     });
   } catch (error) {
+    console.error('Error fetching upload statistics:', error);
     res.status(500).json({ message: error.message });
   }
-});
-
-// Error handling middleware for multer
-router.use((error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ message: 'File too large. Maximum size is 10MB.' });
-    }
-    if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ message: 'Too many files. Maximum is 5 files per upload.' });
-    }
-  }
-  
-  if (error.message.includes('Invalid file type')) {
-    return res.status(400).json({ message: error.message });
-  }
-  
-  res.status(500).json({ message: 'Upload error: ' + error.message });
 });
 
 module.exports = router;
