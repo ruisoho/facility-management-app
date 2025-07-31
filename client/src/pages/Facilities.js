@@ -77,8 +77,8 @@ const Facilities = () => {
       
     if (window.confirm(confirmMessage)) {
       try {
-        const url = cascade ? `${facilityId}?cascade=true` : facilityId;
-        await facilitiesAPI.delete(url);
+        const params = cascade ? { cascade: 'true' } : {};
+        await facilitiesAPI.delete(facilityId, params);
         toast.success('Facility deleted successfully');
         fetchFacilities();
       } catch (error) {

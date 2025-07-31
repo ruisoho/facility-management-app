@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, User, Building, MapPin, DollarSign, FileText, Tag, Clock } from 'lucide-react';
+import { X, Calendar, Building, MapPin, DollarSign, FileText, Tag, Clock } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import { facilitiesAPI } from '../../services/api';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -14,12 +14,10 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
     category: '',
     location: '',
     facilityId: '',
-    responsibleType: 'company', // 'company' or 'employee'
     responsibleCompany: '',
     responsibleContact: '',
     responsiblePhone: '',
     responsibleEmail: '',
-    responsibleEmployee: '',
     estimatedCost: '',
     notes: ''
   });
@@ -43,12 +41,10 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
         category: task.category || '',
         location: task.location || '',
         facilityId: task.facility_id || '',
-        responsibleType: task.responsible?.type || 'employee',
-        responsibleCompany: task.responsible?.type === 'company' ? task.responsible.name : '',
-        responsibleContact: task.responsible?.type === 'company' ? task.responsible.contact : '',
+        responsibleCompany: task.responsible?.name || '',
+        responsibleContact: task.responsible?.contact || '',
         responsiblePhone: '',
         responsibleEmail: '',
-        responsibleEmployee: task.responsible?.type === 'employee' ? task.responsible.name : '',
         estimatedCost: task.estimatedCost || '',
         notes: task.notes || ''
       });
@@ -60,6 +56,10 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
       setLoadingFacilities(true);
       const response = await facilitiesAPI.getAll({ limit: 100 });
       setFacilities(response.data.data);
+      // Automatically select the first facility if available and no facility is currently selected
+      if (response.data.data.length > 0 && !formData.facilityId && !task) {
+        setFormData(prev => ({ ...prev, facilityId: response.data.data[0].id.toString() }));
+      }
     } catch (error) {
       console.error('Error fetching facilities:', error);
     } finally {
@@ -97,14 +97,8 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
       newErrors.what = 'Task description is required';
     }
 
-    if (formData.responsibleType === 'company') {
-      if (!formData.responsibleCompany.trim()) {
-        newErrors.responsibleCompany = 'Company name is required';
-      }
-    } else {
-      if (!formData.responsibleEmployee.trim()) {
-        newErrors.responsibleEmployee = 'Employee name is required';
-      }
+    if (!formData.responsibleCompany.trim()) {
+      newErrors.responsibleCompany = 'Company name is required';
     }
 
     if (formData.estimatedCost && isNaN(parseFloat(formData.estimatedCost))) {
@@ -134,33 +128,16 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
     delete taskData.facilityId; // Remove client-side field name
 
     // Map responsible fields to server format
-    if (formData.responsibleType === 'company') {
-      taskData.responsible = {
-        type: 'company',
-        name: formData.responsibleCompany,
-        contact: formData.responsibleContact || formData.responsiblePhone || formData.responsibleEmail
-      };
-      // Clean up individual responsible fields
-      delete taskData.responsibleEmployee;
-      delete taskData.responsibleCompany;
-      delete taskData.responsibleContact;
-      delete taskData.responsiblePhone;
-      delete taskData.responsibleEmail;
-    } else {
-      taskData.responsible = {
-        type: 'employee',
-        name: formData.responsibleEmployee,
-        contact: ''
-      };
-      // Clean up individual responsible fields
-      delete taskData.responsibleEmployee;
-      delete taskData.responsibleCompany;
-      delete taskData.responsibleContact;
-      delete taskData.responsiblePhone;
-      delete taskData.responsibleEmail;
-    }
-
-    delete taskData.responsibleType;
+    taskData.responsible = {
+      type: 'company',
+      name: formData.responsibleCompany,
+      contact: formData.responsibleContact || formData.responsiblePhone || formData.responsibleEmail
+    };
+    // Clean up individual responsible fields
+    delete taskData.responsibleCompany;
+    delete taskData.responsibleContact;
+    delete taskData.responsiblePhone;
+    delete taskData.responsibleEmail;
 
     onSave(taskData);
   };
@@ -365,117 +342,69 @@ const TaskForm = ({ task, onSave, onCancel, loading = false }) => {
           {/* Responsible Party */}
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <User className="h-5 w-5 mr-2 text-purple-600" />
-              Responsible Party
+              <Building className="h-5 w-5 mr-2 text-purple-600" />
+              Responsible Company
             </h3>
 
-            <div className="space-y-4">
-              <div className="flex space-x-4">
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="responsibleType"
-                    value="company"
-                    checked={formData.responsibleType === 'company'}
-                    onChange={handleInputChange}
-                    className="mr-2 text-purple-600 focus:ring-purple-500"
-                  />
-                  <Building className="h-4 w-4 mr-1" />
-                  Company
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Company Name *
                 </label>
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="responsibleType"
-                    value="employee"
-                    checked={formData.responsibleType === 'employee'}
-                    onChange={handleInputChange}
-                    className="mr-2 text-purple-600 focus:ring-purple-500"
-                  />
-                  <User className="h-4 w-4 mr-1" />
-                  Employee
-                </label>
+                <input
+                  type="text"
+                  name="responsibleCompany"
+                  value={formData.responsibleCompany}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200 ${
+                    errors.responsibleCompany ? 'border-red-300' : 'border-gray-300'
+                  }`}
+                  placeholder="Company name"
+                />
+                {errors.responsibleCompany && <p className="mt-1 text-sm text-red-600">{errors.responsibleCompany}</p>}
               </div>
 
-              {formData.responsibleType === 'company' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Company Name *
-                    </label>
-                    <input
-                      type="text"
-                      name="responsibleCompany"
-                      value={formData.responsibleCompany}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200 ${
-                        errors.responsibleCompany ? 'border-red-300' : 'border-gray-300'
-                      }`}
-                      placeholder="Company name"
-                    />
-                    {errors.responsibleCompany && <p className="mt-1 text-sm text-red-600">{errors.responsibleCompany}</p>}
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Contact Person
+                </label>
+                <input
+                  type="text"
+                  name="responsibleContact"
+                  value={formData.responsibleContact}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200"
+                  placeholder="Contact person name"
+                />
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Contact Person
-                    </label>
-                    <input
-                      type="text"
-                      name="responsibleContact"
-                      value={formData.responsibleContact}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200"
-                      placeholder="Contact person name"
-                    />
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone
+                </label>
+                <input
+                  type="tel"
+                  name="responsiblePhone"
+                  value={formData.responsiblePhone}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200"
+                  placeholder="Phone number"
+                />
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Phone
-                    </label>
-                    <input
-                      type="tel"
-                      name="responsiblePhone"
-                      value={formData.responsiblePhone}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200"
-                      placeholder="Phone number"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      name="responsibleEmail"
-                      value={formData.responsibleEmail}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200"
-                      placeholder="Email address"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Employee Name *
-                  </label>
-                  <input
-                    type="text"
-                    name="responsibleEmployee"
-                    value={formData.responsibleEmployee}
-                    onChange={handleInputChange}
-                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200 ${
-                      errors.responsibleEmployee ? 'border-red-300' : 'border-gray-300'
-                    }`}
-                    placeholder="Employee name"
-                  />
-                  {errors.responsibleEmployee && <p className="mt-1 text-sm text-red-600">{errors.responsibleEmployee}</p>}
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  name="responsibleEmail"
+                  value={formData.responsibleEmail}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-colors duration-200"
+                  placeholder="Email address"
+                />
+              </div>
             </div>
           </div>
 

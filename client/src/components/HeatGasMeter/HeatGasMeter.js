@@ -17,10 +17,12 @@ import {
   FaArrowUp,
   FaArrowDown,
   FaThermometerHalf,
-  FaTimes
+  FaTimes,
+  FaBolt
 } from 'react-icons/fa';
 import { Flame } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { facilitiesAPI } from '../../services/api';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -100,7 +102,7 @@ const HeatGasMeter = () => {
       if (filterFacility) params.append('facility_id', filterFacility);
       if (filterMeterType) params.append('meter_type', filterMeterType);
 
-      const response = await fetch(`http://localhost:5000/api/heat-gas-meters?${params}`);
+      const response = await fetch(`/api/heat-gas-meters?${params}`);
       const data = await response.json();
       
       if (data.success) {
@@ -119,21 +121,25 @@ const HeatGasMeter = () => {
   // Fetch facilities for dropdown
   const fetchFacilities = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/facilities');
-      const data = await response.json();
+      const response = await facilitiesAPI.getAll({ limit: 100 });
       
-      if (data.success) {
-        setFacilities(data.data);
+      if (response.data && response.data.data) {
+        setFacilities(response.data.data);
+        // Automatically select the first facility if available and no facility is currently selected
+        if (response.data.data.length > 0 && !formData.facility_id) {
+          setFormData(prev => ({ ...prev, facility_id: response.data.data[0].id.toString() }));
+        }
       }
     } catch (error) {
       console.error('Error fetching facilities:', error);
+      toast.error('Failed to load facilities');
     }
   };
 
   // Fetch statistics
   const fetchStats = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/heat-gas-meters/stats/overview');
+      const response = await fetch('/api/heat-gas-meters/stats/overview');
       const data = await response.json();
       
       if (data.success) {
@@ -152,7 +158,7 @@ const HeatGasMeter = () => {
   const fetchConsumptionStats = async () => {
     try {
       const params = new URLSearchParams(dateRange);
-      const response = await fetch(`http://localhost:5000/api/heat-gas-meters/stats/consumption?${params}`);
+      const response = await fetch(`/api/heat-gas-meters/stats/consumption?${params}`);
       if (response.ok) {
         const data = await response.json();
         setConsumptionStats(data);
@@ -190,7 +196,7 @@ const HeatGasMeter = () => {
     e.preventDefault();
     
     try {
-      const response = await fetch(`http://localhost:5000/api/heat-gas-meters/${selectedMeter.id}/readings`, {
+      const response = await fetch(`/api/heat-gas-meters/${selectedMeter.id}/readings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -228,8 +234,8 @@ const HeatGasMeter = () => {
     
     try {
       const url = editingMeter 
-        ? `http://localhost:5000/api/heat-gas-meters/${editingMeter.id}`
-        : 'http://localhost:5000/api/heat-gas-meters';
+        ? `/api/heat-gas-meters/${editingMeter.id}`
+        : '/api/heat-gas-meters';
       
       const method = editingMeter ? 'PUT' : 'POST';
       
@@ -270,7 +276,7 @@ const HeatGasMeter = () => {
   const handleDelete = async (id) => {
     if (window.confirm('Sind Sie sicher, dass Sie diesen Zähler löschen möchten?')) {
       try {
-        const response = await fetch(`http://localhost:5000/api/heat-gas-meters/${id}`, {
+        const response = await fetch(`/api/heat-gas-meters/${id}`, {
           method: 'DELETE',
         });
 
@@ -349,7 +355,7 @@ const HeatGasMeter = () => {
     labels: consumptionStats.meterConsumption?.map(meter => meter.name) || [],
     datasets: [
       {
-        label: 'Gesamtverbrauch',
+        label: 'Total Consumption',
         data: consumptionStats.meterConsumption?.map(meter => meter.total_consumption || 0) || [],
         backgroundColor: 'rgba(59, 130, 246, 0.5)',
         borderColor: 'rgba(59, 130, 246, 1)',
@@ -362,7 +368,7 @@ const HeatGasMeter = () => {
     labels: consumptionStats.dailyTrend?.map(day => day.reading_date) || [],
     datasets: [
       {
-        label: 'Täglicher Verbrauch',
+        label: 'Daily Consumption',
         data: consumptionStats.dailyTrend?.map(day => day.daily_total || 0) || [],
         fill: false,
         borderColor: 'rgba(34, 197, 94, 1)',
@@ -380,7 +386,7 @@ const HeatGasMeter = () => {
       },
       title: {
         display: true,
-        text: 'Wärme-/Gasverbrauch Analyse',
+        text: 'Heat/Gas Consumption Analysis',
       },
     },
     scales: {
@@ -479,7 +485,7 @@ const HeatGasMeter = () => {
               onClick={handleAddNew}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors"
             >
-              <FaPlus /> Neuer Zähler
+              <FaPlus /> New Meter
             </button>
           </div>
         </div>
@@ -490,10 +496,10 @@ const HeatGasMeter = () => {
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Gesamt Zähler</p>
+              <p className="text-sm font-medium text-gray-600">Total Meters</p>
               <p className="text-2xl font-bold text-gray-900">{stats.totalMeters || 0}</p>
             </div>
-            <div className="p-3 bg-blue-100 rounded-full">
+            <div className="p-2 bg-blue-100 rounded-lg">
               <FaThermometerHalf className="h-6 w-6 text-blue-600" />
             </div>
           </div>
@@ -502,11 +508,11 @@ const HeatGasMeter = () => {
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Aktive Zähler</p>
+              <p className="text-sm font-medium text-gray-600">Active Meters</p>
               <p className="text-2xl font-bold text-green-600">{stats.activeMeters || 0}</p>
             </div>
-            <div className="p-3 bg-green-100 rounded-full">
-              <FaCheckCircle className="h-6 w-6 text-green-600" />
+            <div className="p-2 bg-green-100 rounded-lg">
+              <FaBolt className="h-6 w-6 text-green-600" />
             </div>
           </div>
         </div>
@@ -514,10 +520,10 @@ const HeatGasMeter = () => {
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Wärmezähler</p>
+              <p className="text-sm font-medium text-gray-600">Heat Meters</p>
               <p className="text-2xl font-bold text-orange-600">{stats.heatMeters || 0}</p>
             </div>
-            <div className="p-3 bg-orange-100 rounded-full">
+            <div className="p-2 bg-orange-100 rounded-lg">
               <FaFire className="h-6 w-6 text-orange-600" />
             </div>
           </div>
@@ -526,10 +532,10 @@ const HeatGasMeter = () => {
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Gaszähler</p>
+              <p className="text-sm font-medium text-gray-600">Gas Meters</p>
               <p className="text-2xl font-bold text-blue-600">{stats.gasMeters || 0}</p>
             </div>
-            <div className="p-3 bg-blue-100 rounded-full">
+            <div className="p-2 bg-blue-100 rounded-lg">
               <Flame className="h-6 w-6 text-blue-600" />
             </div>
           </div>
@@ -542,13 +548,13 @@ const HeatGasMeter = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <FaSearch className="inline mr-2" />
-              Suchen
+              Search
             </label>
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Name, Nummer oder Standort..."
+              placeholder="Name, number or location..."
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
@@ -556,15 +562,15 @@ const HeatGasMeter = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <FaFilter className="inline mr-2" />
-              Zählertyp
+              Meter Type
             </label>
             <select
               value={filterMeterType}
               onChange={(e) => setFilterMeterType(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="">Alle Typen</option>
-              <option value="heat">Wärme</option>
+              <option value="">All Types</option>
+              <option value="heat">Heat</option>
               <option value="gas">Gas</option>
             </select>
           </div>
@@ -572,14 +578,14 @@ const HeatGasMeter = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <FaBuilding className="inline mr-2" />
-              Anlage
+              Facility
             </label>
             <select
               value={filterFacility}
               onChange={(e) => setFilterFacility(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="">Alle Anlagen</option>
+              <option value="">All Facilities</option>
               {facilities.map(facility => (
                 <option key={facility.id} value={facility.id}>
                   {facility.name}
@@ -595,10 +601,10 @@ const HeatGasMeter = () => {
               onChange={(e) => setFilterStatus(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="">Alle Status</option>
-              <option value="Active">Aktiv</option>
-              <option value="Inactive">Inaktiv</option>
-              <option value="Maintenance">Wartung</option>
+              <option value="">All Status</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+              <option value="Maintenance">Maintenance</option>
             </select>
           </div>
         </div>
@@ -611,28 +617,28 @@ const HeatGasMeter = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Zähler
+                  Meter
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Typ
+                  Type
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Anlage
+                  Facility
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Zählerstand
+                  Reading
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Verbrauch
+                  Consumption
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Reihenfolge
+                  Order
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Aktionen
+                  Actions
                 </th>
               </tr>
             </thead>
@@ -641,8 +647,8 @@ const HeatGasMeter = () => {
                 <tr>
                   <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
                     <FaExclamationTriangle className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                    <p className="text-lg font-medium">Keine Zähler gefunden</p>
-                    <p className="text-sm">Fügen Sie einen neuen Zähler hinzu oder ändern Sie die Filter.</p>
+                    <p className="text-lg font-medium">No Meters Found</p>
+                    <p className="text-sm">Add a new meter or change the filters.</p>
                   </td>
                 </tr>
               ) : (
@@ -682,7 +688,7 @@ const HeatGasMeter = () => {
                           onClick={() => openReadingForm(meter)}
                           className="text-xs text-blue-600 hover:text-blue-800 mt-1"
                         >
-                          Stand hinzufügen
+                          Add Reading
                         </button>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -740,7 +746,7 @@ const HeatGasMeter = () => {
                           <button
                             onClick={() => handleDelete(meter.id)}
                             className="text-red-600 hover:text-red-900 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                            title="Löschen"
+                            title="Delete"
                           >
                             <FaTrash className="h-4 w-4" />
                           </button>
@@ -761,7 +767,7 @@ const HeatGasMeter = () => {
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900">
-                {editingMeter ? 'Zähler bearbeiten' : 'Neuer Zähler'}
+                {editingMeter ? 'Edit Meter' : 'New Meter'}
               </h2>
             </div>
             
@@ -782,7 +788,7 @@ const HeatGasMeter = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Zählernummer *
+                    Meter Number *
                   </label>
                   <input
                     type="text"
@@ -795,7 +801,7 @@ const HeatGasMeter = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Zählertyp *
+                    Meter Type *
                   </label>
                   <select
                     value={formData.meter_type}
@@ -807,14 +813,14 @@ const HeatGasMeter = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   >
-                    <option value="heat">Wärme (MWh)</option>
+                    <option value="heat">Heat (MWh)</option>
                     <option value="gas">Gas (m³)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Standort
+                    Location
                   </label>
                   <input
                     type="text"
@@ -826,14 +832,14 @@ const HeatGasMeter = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Anlage
+                    Facility
                   </label>
                   <select
                     value={formData.facility_id}
                     onChange={(e) => setFormData({ ...formData, facility_id: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="">Keine Anlage zugeordnet</option>
+                    <option value="">No Facility Assigned</option>
                     {facilities.map(facility => (
                       <option key={facility.id} value={facility.id}>
                         {facility.name}
@@ -851,15 +857,15 @@ const HeatGasMeter = () => {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="Active">Aktiv</option>
-                    <option value="Inactive">Inaktiv</option>
-                    <option value="Maintenance">Wartung</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Maintenance">Maintenance</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Aktueller Zählerstand ({formData.unit})
+                    Current Reading ({formData.unit})
                   </label>
                   <input
                     type="number"
@@ -872,7 +878,7 @@ const HeatGasMeter = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Vorheriger Zählerstand ({formData.unit})
+                    Previous Reading ({formData.unit})
                   </label>
                   <input
                     type="number"
@@ -885,7 +891,7 @@ const HeatGasMeter = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Installationsdatum
+                    Installation Date
                   </label>
                   <input
                     type="date"
@@ -898,7 +904,7 @@ const HeatGasMeter = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Notizen
+                  Notes
                 </label>
                 <textarea
                   value={formData.notes}
@@ -918,13 +924,13 @@ const HeatGasMeter = () => {
                   }}
                   className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                 >
-                  Abbrechen
+                  Cancel
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
                 >
-                  {editingMeter ? 'Aktualisieren' : 'Erstellen'}
+                  {editingMeter ? 'Update' : 'Create'}
                 </button>
               </div>
             </form>
@@ -938,21 +944,21 @@ const HeatGasMeter = () => {
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                Zählerstand hinzufügen
+                Add Meter Reading
               </h2>
               
               {selectedMeter && (
                 <div className="mb-4 p-4 bg-gray-50 rounded-lg">
                   <h3 className="font-semibold text-gray-800">{selectedMeter.name}</h3>
                   <p className="text-sm text-gray-600">Nr: {selectedMeter.number}</p>
-                  <p className="text-sm text-gray-600">Aktueller Stand: {selectedMeter.currentReading} {selectedMeter.unit}</p>
+                  <p className="text-sm text-gray-600">Current Reading: {selectedMeter.currentReading} {selectedMeter.unit}</p>
                 </div>
               )}
               
               <form onSubmit={handleReadingSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Ablesedatum *
+                    Reading Date *
                   </label>
                   <input
                     type="date"
@@ -965,7 +971,7 @@ const HeatGasMeter = () => {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Zählerstand ({selectedMeter.unit}) *
+                    Meter Reading ({selectedMeter.unit}) *
                   </label>
                   <input
                     type="number"
@@ -980,13 +986,13 @@ const HeatGasMeter = () => {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Notizen
+                    Notes
                   </label>
                   <textarea
                     value={readingData.notes}
                     onChange={(e) => setReadingData({...readingData, notes: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Optionale Notizen zur Ablesung..."
+                    placeholder="Optional notes for the reading..."
                     rows="3"
                   />
                 </div>
@@ -1000,13 +1006,13 @@ const HeatGasMeter = () => {
                     }}
                     className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                   >
-                    Abbrechen
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
                   >
-                    Hinzufügen
+                    Add
                   </button>
                 </div>
               </form>
@@ -1021,7 +1027,7 @@ const HeatGasMeter = () => {
           <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-gray-900">Verbrauchsanalyse</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Consumption Analysis</h2>
                 <button
                    onClick={() => setShowGraphs(false)}
                    className="text-gray-400 hover:text-gray-600"

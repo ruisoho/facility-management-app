@@ -59,7 +59,6 @@ const Dashboard = () => {
       value: dashboardData.stats.totalMaintenance,
       icon: Wrench,
       color: 'blue',
-      trend: '+12%',
       description: 'Active maintenance cycles'
     },
     {
@@ -67,7 +66,6 @@ const Dashboard = () => {
       value: dashboardData.stats.overdueMaintenance,
       icon: AlertTriangle,
       color: 'red',
-      trend: '-5%',
       description: 'Require immediate attention'
     },
     {
@@ -75,7 +73,6 @@ const Dashboard = () => {
       value: dashboardData.stats.totalTasks,
       icon: CheckSquare,
       color: 'green',
-      trend: '+8%',
       description: 'Pending and in progress'
     },
     {
@@ -83,7 +80,6 @@ const Dashboard = () => {
       value: `${dashboardData.stats.monthlyElectricity} kWh`,
       icon: Zap,
       color: 'yellow',
-      trend: '+3%',
       description: 'Electricity consumption'
     },
     {
@@ -91,7 +87,6 @@ const Dashboard = () => {
       value: `€${dashboardData.stats.totalCost}`,
       icon: DollarSign,
       color: 'purple',
-      trend: '+2%',
       description: 'This month total'
     },
     {
@@ -99,7 +94,6 @@ const Dashboard = () => {
       value: dashboardData.stats.completedThisMonth,
       icon: Activity,
       color: 'indigo',
-      trend: '+15%',
       description: 'Tasks completed this month'
     }
   ];

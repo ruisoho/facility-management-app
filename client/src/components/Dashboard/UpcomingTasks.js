@@ -19,8 +19,8 @@ const UpcomingTasks = ({ tasks = [] }) => {
       priority: 'high',
       responsible: {
         type: 'company',
-        name: 'TechServ Solutions',
-        contact: 'john@techserv.com'
+        name: 'HVAC Solutions Inc',
+        contact: 'service@hvacsolutions.com'
       },
       category: 'Maintenance',
       status: 'pending'
@@ -32,9 +32,9 @@ const UpcomingTasks = ({ tasks = [] }) => {
       deadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
       priority: 'medium',
       responsible: {
-        type: 'employee',
-        name: 'Sarah Johnson',
-        contact: 'sarah.j@company.com'
+        type: 'company',
+        name: 'ElectriCorp Services',
+        contact: 'support@electricorp.com'
       },
       category: 'Safety',
       status: 'in-progress'

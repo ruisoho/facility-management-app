@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL: process.env.REACT_APP_API_URL || '/api',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -162,7 +162,7 @@ export const facilitiesAPI = {
   getById: (id) => api.get(`/facilities/${id}`),
   create: (data) => api.post('/facilities', data),
   update: (id, data) => api.put(`/facilities/${id}`, data),
-  delete: (id) => api.delete(`/facilities/${id}`),
+  delete: (id, params = {}) => api.delete(`/facilities/${id}`, { params }),
   getTasks: (id, params = {}) => api.get(`/facilities/${id}/tasks`, { params }),
   getMaintenance: (id, params = {}) => api.get(`/facilities/${id}/maintenance`, { params }),
   getStats: (id) => api.get(`/facilities/${id}/stats`)

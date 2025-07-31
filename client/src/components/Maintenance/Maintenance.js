@@ -13,6 +13,7 @@ import {
   User,
   DollarSign
 } from 'lucide-react';
+import { FaBolt } from 'react-icons/fa';
 
 const Maintenance = () => {
   const [maintenanceRecords, setMaintenanceRecords] = useState([]);
@@ -203,7 +204,7 @@ const Maintenance = () => {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+              <FaBolt className="w-6 h-6 text-green-600" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Completed</p>

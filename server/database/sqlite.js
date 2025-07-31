@@ -187,6 +187,28 @@ const createTables = () => {
     )
   `);
 
+  // Create heat_gas_meters table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS heat_gas_meters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      number TEXT UNIQUE NOT NULL,
+      location TEXT,
+      facility_id INTEGER,
+      meter_type TEXT NOT NULL, -- 'heat' or 'gas'
+      unit TEXT NOT NULL, -- 'MWh' for heat, 'm3' for gas
+      currentReading REAL DEFAULT 0,
+      previousReading REAL DEFAULT 0,
+      installationDate TEXT,
+      lastReadingDate TEXT,
+      status TEXT DEFAULT 'Active',
+      notes TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (facility_id) REFERENCES facilities (id)
+    )
+  `);
+
   // Add attachments table for tasks and maintenance
   db.exec(`
     CREATE TABLE IF NOT EXISTS attachments (
@@ -206,15 +228,19 @@ const createTables = () => {
 
   console.log('✅ SQLite tables created successfully');
 };
-const insertSampleData = () => {
-  // Insert sample facilities first
-  const facilityCount = db.prepare('SELECT COUNT(*) as count FROM facilities').get();
-  
-  if (facilityCount.count === 0) {
-    const insertFacility = db.prepare(`
-      INSERT INTO facilities (name, type, location, address, description, manager, contact, area, floors, yearBuilt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+const insertSampleData = (forceSampleData = false) => {
+  // Use transaction for atomic data insertion
+  const transaction = db.transaction(() => {
+    // Only insert sample facilities if explicitly requested or if SAMPLE_DATA env var is set
+    const facilityCount = db.prepare('SELECT COUNT(*) as count FROM facilities').get();
+    const shouldInsertSamples = forceSampleData || process.env.SAMPLE_DATA === 'true';
+    
+    if (facilityCount.count === 0 && shouldInsertSamples) {
+      console.log('🏢 Inserting sample facilities...');
+      const insertFacility = db.prepare(`
+        INSERT INTO facilities (name, type, location, address, description, manager, contact, area, floors, yearBuilt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
 
     const sampleFacilities = [
       {
@@ -275,28 +301,30 @@ const insertSampleData = () => {
 
   const taskCount = db.prepare('SELECT COUNT(*) as count FROM tasks').get();
   
-  if (taskCount.count === 0) {
+  if (taskCount.count === 0 && shouldInsertSamples) {
     const insertTask = db.prepare(`
-      INSERT INTO tasks (title, description, category, priority, status, deadline, responsible_type, responsible_name, responsible_contact, estimatedCost, facility_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (what, what_to_do, description, category, priority, status, deadline, responsible_type, responsible_name, responsible_phone, estimated_cost, facility_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const sampleTasks = [
       {
-        title: 'HVAC System Inspection',
+        what: 'HVAC System Inspection',
+        what_to_do: 'Inspect and clean HVAC system components, check filters, test temperature controls',
         description: 'Monthly inspection of HVAC system in Main Office Building',
         category: 'Maintenance',
         priority: 'High',
         status: 'In Progress',
         deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        responsible_type: 'employee',
+        responsible_type: 'company',
         responsible_name: 'John Smith',
-        responsible_contact: 'john.smith@company.com',
-        estimatedCost: 500,
+        responsible_phone: 'john.smith@company.com',
+        estimated_cost: 500,
         facility_id: 1
       },
       {
-        title: 'Electrical Panel Maintenance',
+        what: 'Electrical Panel Maintenance',
+        what_to_do: 'Check electrical connections, test circuit breakers, inspect wiring and safety systems',
         description: 'Quarterly maintenance of main electrical panel',
         category: 'Electrical',
         priority: 'Medium',
@@ -304,12 +332,13 @@ const insertSampleData = () => {
         deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
         responsible_type: 'company',
         responsible_name: 'ElectriCorp Services',
-        responsible_contact: 'service@electricorp.com',
-        estimatedCost: 750,
+        responsible_phone: 'service@electricorp.com',
+        estimated_cost: 750,
         facility_id: 2
       },
       {
-        title: 'Fire Safety System Check',
+        what: 'Fire Safety System Check',
+        what_to_do: 'Test fire alarms, inspect sprinkler systems, check emergency exits and safety equipment',
         description: 'Annual fire safety system inspection and testing',
         category: 'Safety',
         priority: 'High',
@@ -317,15 +346,16 @@ const insertSampleData = () => {
         deadline: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
         responsible_type: 'company',
         responsible_name: 'SafeGuard Systems',
-        responsible_contact: 'info@safeguard.com',
-        estimatedCost: 1200,
+        responsible_phone: 'info@safeguard.com',
+        estimated_cost: 1200,
         facility_id: 3
       }
     ];
 
     sampleTasks.forEach(task => {
       insertTask.run(
-        task.title,
+        task.what,
+        task.what_to_do,
         task.description,
         task.category,
         task.priority,
@@ -333,8 +363,8 @@ const insertSampleData = () => {
         task.deadline,
         task.responsible_type,
         task.responsible_name,
-        task.responsible_contact,
-        task.estimatedCost,
+        task.responsible_phone,
+        task.estimated_cost,
         task.facility_id
       );
     });
@@ -345,7 +375,8 @@ const insertSampleData = () => {
   // Insert building electric meters
   const meterCount = db.prepare('SELECT COUNT(*) as count FROM electric_meters').get();
   
-  if (meterCount.count === 0) {
+  if (meterCount.count === 0 && shouldInsertSamples) {
+    console.log('⚡ Inserting sample electric meters...');
     const insertMeter = db.prepare(`
       INSERT INTO electric_meters (name, number, location, facility_id, currentReading, previousReading, installationDate, lastReadingDate, meterType, voltage, maxCapacity, status, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -689,10 +720,124 @@ const insertSampleData = () => {
 
     console.log('✅ Building electric meters inserted successfully (21 meters)');
   }
+
+  // Insert heat and gas meters
+  const heatGasMeterCount = db.prepare('SELECT COUNT(*) as count FROM heat_gas_meters').get();
+  
+  if (heatGasMeterCount.count === 0 && shouldInsertSamples) {
+    console.log('🔥 Inserting sample heat/gas meters...');
+    const insertHeatGasMeter = db.prepare(`
+      INSERT INTO heat_gas_meters (
+        name, number, location, facility_id, meter_type, unit, 
+        currentReading, previousReading, installationDate, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const heatGasMeters = [
+      {
+        name: 'Hauptgebäude',
+        number: '0807830324',
+        location: 'Hauptgebäude',
+        facility_id: 1,
+        meter_type: 'heat',
+        unit: 'MWh',
+        currentReading: 1250.5,
+        previousReading: 1200.0,
+        installationDate: '2020-01-15',
+        status: 'Active'
+      },
+      {
+        name: 'Werkstatt',
+        number: '37902218r',
+        location: 'Werkstatt',
+        facility_id: 2,
+        meter_type: 'heat',
+        unit: 'MWh',
+        currentReading: 850.2,
+        previousReading: 820.5,
+        installationDate: '2019-03-10',
+        status: 'Active'
+      },
+      {
+        name: 'Polizei',
+        number: '37912473',
+        location: 'Polizeistation',
+        facility_id: 3,
+        meter_type: 'heat',
+        unit: 'MWh',
+        currentReading: 950.8,
+        previousReading: 920.3,
+        installationDate: '2018-11-20',
+        status: 'Active'
+      },
+      {
+        name: 'Gas',
+        number: '0804521495',
+        location: 'Hauptgebäude',
+        facility_id: 1,
+        meter_type: 'gas',
+        unit: 'm³',
+        currentReading: 15420.0,
+        previousReading: 15200.0,
+        installationDate: '2019-05-15',
+        status: 'Active'
+      }
+    ];
+
+    heatGasMeters.forEach(meter => {
+      insertHeatGasMeter.run(
+        meter.name, meter.number, meter.location, meter.facility_id,
+        meter.meter_type, meter.unit, meter.currentReading, meter.previousReading,
+        meter.installationDate, meter.status
+      );
+    });
+
+    console.log('✅ Heat and gas meters inserted successfully (4 meters)');
+   }
+  });
+  
+  // Execute the transaction
+  transaction();
+};
+
+// Comprehensive database initialization
+const initializeDatabase = () => {
+  try {
+    console.log('🔄 Starting database initialization...');
+    
+    // Step 1: Create all tables
+    createTables();
+    console.log('✅ Database tables created successfully');
+    
+    // Step 2: Insert sample data in correct order
+    insertSampleData();
+    console.log('✅ Sample data initialization completed');
+    
+    // Step 3: Verify data integrity
+    const facilitiesCount = db.prepare('SELECT COUNT(*) as count FROM facilities').get().count;
+    const tasksCount = db.prepare('SELECT COUNT(*) as count FROM tasks').get().count;
+    const electricMetersCount = db.prepare('SELECT COUNT(*) as count FROM electric_meters').get().count;
+    const heatGasMetersCount = db.prepare('SELECT COUNT(*) as count FROM heat_gas_meters').get().count;
+    
+    console.log('📊 Database verification:');
+    console.log(`   - Facilities: ${facilitiesCount}`);
+    console.log(`   - Tasks: ${tasksCount}`);
+    console.log(`   - Electric Meters: ${electricMetersCount}`);
+    console.log(`   - Heat/Gas Meters: ${heatGasMetersCount}`);
+    
+    if (facilitiesCount >= 3 && electricMetersCount >= 20 && heatGasMetersCount >= 4) {
+      console.log('✅ Database initialization successful - All components ready');
+    } else {
+      console.warn('⚠️  Database initialization incomplete - Some data may be missing');
+    }
+    
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error);
+    throw error;
+  }
 };
 
 // Initialize database
-createTables();
-insertSampleData();
+initializeDatabase();
 
 module.exports = db;

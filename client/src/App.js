@@ -2,8 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import ErrorBoundary from './components/Common/ErrorBoundary';
-import Sidebar from './components/Layout/Sidebar';
-import Header from './components/Layout/Header';
+import TopNavigation from './components/Layout/TopNavigation';
 import Dashboard from './components/Dashboard/Dashboard';
 import Tasks from './components/Tasks/Tasks';
 import Maintenance from './components/Maintenance/Maintenance';
@@ -14,7 +13,6 @@ import { DashboardProvider } from './contexts/DashboardContext';
 import './App.css';
 
 function App() {
-  const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
   return (
     <ErrorBoundary>
@@ -24,6 +22,9 @@ function App() {
           v7_relativeSplatPath: true
         }}>
           <div className="min-h-screen bg-gray-50">
+            {/* Top Navigation */}
+            <TopNavigation />
+            
             <Toaster 
               position="top-right"
               toastOptions={{
@@ -49,14 +50,8 @@ function App() {
               }}
             />
             
-            {/* Sidebar */}
-            <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />
-            
             {/* Main Content */}
-            <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
-              {/* Header */}
-              <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
-              
+            <div className="w-full">
               {/* Page Content */}
               <main className="p-4 sm:p-6">
                 <Routes>

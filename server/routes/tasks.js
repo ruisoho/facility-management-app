@@ -57,7 +57,7 @@ router.get('/', async (req, res) => {
     }
 
     // Sorting
-    const validSortColumns = ['createdAt', 'deadline', 'priority', 'status', 'title'];
+    const validSortColumns = ['createdAt', 'deadline', 'priority', 'status', 'what'];
     const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'createdAt';
     const order = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
     query += ` ORDER BY ${sortColumn} ${order}`;
@@ -74,7 +74,7 @@ router.get('/', async (req, res) => {
     // Transform data to match MongoDB format
     const transformedTasks = tasks.map(task => ({
       _id: task.id.toString(),
-      what: task.title,
+      what: task.what,
       description: task.description,
       insertDate: task.createdAt,
       category: task.category,
@@ -126,10 +126,12 @@ router.get('/', async (req, res) => {
 
     res.json({
       data: {
-        tasks: transformedTasks,
-        totalPages: Math.ceil(total / limit),
-        currentPage: parseInt(page),
-        total
+        data: transformedTasks,
+        pagination: {
+          pages: Math.ceil(total / limit),
+          currentPage: parseInt(page),
+          total
+        }
       }
     });
   } catch (error) {
@@ -486,7 +488,7 @@ router.get('/stats/dashboard', async (req, res) => {
 
     // Get upcoming deadlines (next 7 days)
     const upcomingTasks = db.prepare(`
-      SELECT id, title, deadline, priority, status
+      SELECT id, what, deadline, priority, status
       FROM tasks 
       WHERE deadline BETWEEN date('now') AND date('now', '+7 days')
       AND status != 'Completed'
@@ -499,7 +501,7 @@ router.get('/stats/dashboard', async (req, res) => {
       categoryBreakdown: categoryStats,
       upcomingDeadlines: upcomingTasks.map(task => ({
         _id: task.id.toString(),
-        what: task.title,
+        what: task.what,
         deadline: task.deadline,
         priority: task.priority,
         status: task.status

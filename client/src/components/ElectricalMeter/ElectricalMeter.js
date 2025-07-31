@@ -15,9 +15,11 @@ import {
   FaCalendarAlt,
   FaChartBar,
   FaArrowUp,
-  FaArrowDown
+  FaArrowDown,
+  FaTimes
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+import { facilitiesAPI } from '../../services/api';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -102,7 +104,7 @@ const ElectricalMeter = () => {
       if (filterStatus) params.append('status', filterStatus);
       if (filterFacility) params.append('facility_id', filterFacility);
 
-      const response = await fetch(`http://localhost:5000/api/electric-meters?${params}`);
+      const response = await fetch(`/api/electric-meters?${params}`);
       const data = await response.json();
       
       if (data.success) {
@@ -121,21 +123,25 @@ const ElectricalMeter = () => {
   // Fetch facilities for dropdown
   const fetchFacilities = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/facilities');
-      const data = await response.json();
+      const response = await facilitiesAPI.getAll({ limit: 100 });
       
-      if (data.success) {
-        setFacilities(data.data);
+      if (response.data && response.data.data) {
+        setFacilities(response.data.data);
+        // Automatically select the first facility if available and no facility is currently selected
+        if (response.data.data.length > 0 && !formData.facility_id) {
+          setFormData(prev => ({ ...prev, facility_id: response.data.data[0].id.toString() }));
+        }
       }
     } catch (error) {
       console.error('Error fetching facilities:', error);
+      toast.error('Failed to load facilities');
     }
   };
 
   // Fetch statistics
   const fetchStats = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/electric-meters/stats/overview');
+      const response = await fetch('/api/electric-meters/stats/overview');
       const data = await response.json();
       
       if (data.success) {
@@ -149,7 +155,7 @@ const ElectricalMeter = () => {
   const fetchConsumptionStats = async () => {
     try {
       const params = new URLSearchParams(dateRange);
-      const response = await fetch(`http://localhost:5000/api/electric-meters/stats/consumption?${params}`);
+      const response = await fetch(`/api/electric-meters/stats/consumption?${params}`);
       if (response.ok) {
         const data = await response.json();
         setConsumptionStats(data);
@@ -170,7 +176,7 @@ const ElectricalMeter = () => {
       const newMeters = [...meters];
       [newMeters[index], newMeters[index - 1]] = [newMeters[index - 1], newMeters[index]];
       setMeters(newMeters);
-      toast.success('Zähler nach oben verschoben');
+      toast.success('Meter moved up');
     }
   };
 
@@ -189,8 +195,8 @@ const ElectricalMeter = () => {
     
     try {
       const url = editingMeter 
-        ? `http://localhost:5000/api/electric-meters/${editingMeter.id}`
-        : 'http://localhost:5000/api/electric-meters';
+        ? `/api/electric-meters/${editingMeter.id}`
+        : '/api/electric-meters';
       
       const method = editingMeter ? 'PUT' : 'POST';
       
@@ -223,7 +229,7 @@ const ElectricalMeter = () => {
     e.preventDefault();
     
     try {
-      const response = await fetch(`http://localhost:5000/api/electric-meters/${selectedMeter.id}/readings`, {
+      const response = await fetch(`/api/electric-meters/${selectedMeter.id}/readings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -261,7 +267,7 @@ const ElectricalMeter = () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:5000/api/electric-meters/${id}`, {
+      const response = await fetch(`/api/electric-meters/${id}`, {
         method: 'DELETE',
       });
 
@@ -308,7 +314,7 @@ const ElectricalMeter = () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:5000/api/electric-meters/${id}/reading`, {
+      const response = await fetch(`/api/electric-meters/${id}/reading`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -367,7 +373,7 @@ const ElectricalMeter = () => {
     labels: consumptionStats.meterConsumption?.map(meter => meter.name) || [],
     datasets: [
       {
-        label: 'Gesamtverbrauch (kWh)',
+        label: 'Total Consumption (kWh)',
         data: consumptionStats.meterConsumption?.map(meter => meter.total_consumption || 0) || [],
         backgroundColor: 'rgba(59, 130, 246, 0.5)',
         borderColor: 'rgba(59, 130, 246, 1)',
@@ -380,7 +386,7 @@ const ElectricalMeter = () => {
     labels: consumptionStats.dailyTrend?.map(day => day.reading_date) || [],
     datasets: [
       {
-        label: 'Täglicher Verbrauch (kWh)',
+        label: 'Daily Consumption (kWh)',
         data: consumptionStats.dailyTrend?.map(day => day.daily_total || 0) || [],
         fill: false,
         borderColor: 'rgba(34, 197, 94, 1)',
@@ -398,7 +404,7 @@ const ElectricalMeter = () => {
       },
       title: {
         display: true,
-        text: 'Stromverbrauch Analyse',
+        text: 'Electricity Consumption Analysis',
       },
     },
     scales: {
@@ -466,9 +472,9 @@ const ElectricalMeter = () => {
             <div>
               <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-3">
                 <FaBolt className="text-yellow-500" />
-                Stromzähler Verwaltung
+                Electric Meter Management
               </h1>
-              <p className="text-gray-600">Verwalten Sie alle elektrischen Zähler und deren Verbrauch</p>
+              <p className="text-gray-600">Manage all electric meters and their consumption</p>
             </div>
             <div className="flex gap-3">
               <button
@@ -476,14 +482,14 @@ const ElectricalMeter = () => {
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 <FaChartBar />
-                {showGraphs ? 'Grafiken ausblenden' : 'Verbrauchsgrafiken'}
+                {showGraphs ? 'Hide Charts' : 'Consumption Charts'}
               </button>
               <button
                 onClick={handleExport}
                 className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
               >
                 <FaDownload />
-                Exportieren
+                Export
               </button>
               <button
                 onClick={() => {
@@ -493,7 +499,7 @@ const ElectricalMeter = () => {
                 className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
               >
                 <FaPlus />
-                Neuer Zähler
+                New Meter
               </button>
             </div>
           </div>
@@ -504,7 +510,7 @@ const ElectricalMeter = () => {
           <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Gesamt Zähler</p>
+                <p className="text-sm font-medium text-gray-600">Total Meters</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.totalMeters || 0}</p>
               </div>
               <FaBolt className="text-3xl text-blue-500" />
@@ -514,7 +520,7 @@ const ElectricalMeter = () => {
           <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Aktive Zähler</p>
+                <p className="text-sm font-medium text-gray-600">Active Meters</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.activeMeters || 0}</p>
               </div>
               <FaCheckCircle className="text-3xl text-green-500" />
@@ -524,7 +530,7 @@ const ElectricalMeter = () => {
           <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Gesamtverbrauch</p>
+                <p className="text-sm font-medium text-gray-600">Total Consumption</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.totalConsumption || 0} kWh</p>
               </div>
               <FaChartLine className="text-3xl text-purple-500" />
@@ -534,7 +540,7 @@ const ElectricalMeter = () => {
           <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-orange-500">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Ø Verbrauch</p>
+                <p className="text-sm font-medium text-gray-600">Avg Consumption</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.avgConsumption || 0} kWh</p>
               </div>
               <FaBuilding className="text-3xl text-orange-500" />
@@ -548,13 +554,13 @@ const ElectricalMeter = () => {
             <div className="mb-6">
               <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <FaChartLine className="text-blue-500" />
-                Verbrauchsanalyse
+                Consumption Analysis
               </h3>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Von Datum
+                    From Date
                   </label>
                   <input
                     type="date"
@@ -565,7 +571,7 @@ const ElectricalMeter = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Bis Datum
+                    To Date
                   </label>
                   <input
                     type="date"
@@ -579,12 +585,12 @@ const ElectricalMeter = () => {
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-lg font-semibold text-gray-800 mb-4">Verbrauch pro Zähler</h4>
+                <h4 className="text-lg font-semibold text-gray-800 mb-4">Consumption per Meter</h4>
                 <Bar data={consumptionChartData} options={chartOptions} />
               </div>
               
               <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-lg font-semibold text-gray-800 mb-4">Täglicher Verbrauchstrend</h4>
+                <h4 className="text-lg font-semibold text-gray-800 mb-4">Daily Consumption Trend</h4>
                 <Line data={dailyTrendChartData} options={chartOptions} />
               </div>
             </div>
@@ -598,7 +604,7 @@ const ElectricalMeter = () => {
               <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Suchen..."
+                placeholder="Search..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -610,10 +616,10 @@ const ElectricalMeter = () => {
               onChange={(e) => setFilterStatus(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="">Alle Status</option>
-              <option value="Active">Aktiv</option>
+              <option value="">All Status</option>
+              <option value="Active">Active</option>
               <option value="Standby">Standby</option>
-              <option value="Maintenance">Wartung</option>
+              <option value="Maintenance">Maintenance</option>
             </select>
             
             <select
@@ -621,7 +627,7 @@ const ElectricalMeter = () => {
               onChange={(e) => setFilterFacility(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="">Alle Anlagen</option>
+              <option value="">All Facilities</option>
               {facilities.map(facility => (
                 <option key={facility.id} value={facility.id}>
                   {facility.name}
@@ -638,7 +644,7 @@ const ElectricalMeter = () => {
               className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
             >
               <FaFilter />
-              Filter zurücksetzen
+              Reset Filters
             </button>
           </div>
         </div>
@@ -655,25 +661,25 @@ const ElectricalMeter = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Reihenfolge
+                      Order
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Zähler
+                      Meter
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Anlage
+                      Facility
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Zählerstand
+                      Reading
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Verbrauch
+                      Consumption
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Aktionen
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -752,7 +758,7 @@ const ElectricalMeter = () => {
                           <button
                             onClick={() => openReadingForm(meter)}
                             className="text-green-600 hover:text-green-900 p-1 rounded" 
-                            title="Zählerstand hinzufügen"
+                            title="Add Reading"
                           >
                             <FaCalendarAlt />
                           </button>
@@ -780,8 +786,8 @@ const ElectricalMeter = () => {
           {!loading && meters.length === 0 && (
             <div className="text-center py-12">
               <FaBolt className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Keine Stromzähler gefunden</h3>
-              <p className="text-gray-500">Erstellen Sie Ihren ersten Stromzähler.</p>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Electric Meters Found</h3>
+              <p className="text-gray-500">Create your first electric meter.</p>
             </div>
           )}
         </div>
@@ -792,21 +798,21 @@ const ElectricalMeter = () => {
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
               <div className="p-6">
                 <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                  Zählerstand hinzufügen
+                  Add Meter Reading
                 </h2>
                 
                 {selectedMeter && (
                   <div className="mb-4 p-4 bg-gray-50 rounded-lg">
                     <h3 className="font-semibold text-gray-800">{selectedMeter.name}</h3>
                     <p className="text-sm text-gray-600">Nr: {selectedMeter.number}</p>
-                    <p className="text-sm text-gray-600">Aktueller Stand: {selectedMeter.currentReading} kWh</p>
+                    <p className="text-sm text-gray-600">Current Reading: {selectedMeter.currentReading} kWh</p>
                   </div>
                 )}
                 
                 <form onSubmit={handleReadingSubmit} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Ablesedatum *
+                      Reading Date *
                     </label>
                     <input
                       type="date"
@@ -819,7 +825,7 @@ const ElectricalMeter = () => {
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Zählerstand (kWh) *
+                      Meter Reading (kWh) *
                     </label>
                     <input
                       type="number"
@@ -834,14 +840,14 @@ const ElectricalMeter = () => {
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Notizen
+                      Notes
                     </label>
                     <textarea
                       rows="3"
                       value={readingData.notes}
                       onChange={(e) => setReadingData({...readingData, notes: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Optionale Notizen zur Ablesung..."
+                      placeholder="Optional notes for the reading..."
                     />
                   </div>
                   
@@ -854,13 +860,13 @@ const ElectricalMeter = () => {
                       }}
                       className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                     >
-                      Abbrechen
+                      Cancel
                     </button>
                     <button
                       type="submit"
                       className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
-                      Zählerstand speichern
+                      Save Reading
                     </button>
                   </div>
                 </form>
@@ -875,7 +881,7 @@ const ElectricalMeter = () => {
             <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6">
                 <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                  {editingMeter ? 'Stromzähler bearbeiten' : 'Neuer Stromzähler'}
+                  {editingMeter ? 'Edit Electric Meter' : 'New Electric Meter'}
                 </h2>
                 
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -895,7 +901,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Zählernummer *
+                        Meter Number *
                       </label>
                       <input
                         type="text"
@@ -908,7 +914,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Standort
+                        Location
                       </label>
                       <input
                         type="text"
@@ -920,14 +926,14 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Anlage
+                        Facility
                       </label>
                       <select
                         value={formData.facility_id}
                         onChange={(e) => setFormData({...formData, facility_id: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       >
-                        <option value="">Keine Anlage</option>
+                        <option value="">No Facility</option>
                         {facilities.map(facility => (
                           <option key={facility.id} value={facility.id}>
                             {facility.name}
@@ -938,7 +944,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Aktueller Zählerstand (kWh)
+                        Current Reading (kWh)
                       </label>
                       <input
                         type="number"
@@ -952,7 +958,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Vorheriger Zählerstand (kWh)
+                        Previous Reading (kWh)
                       </label>
                       <input
                         type="number"
@@ -966,7 +972,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Installationsdatum
+                        Installation Date
                       </label>
                       <input
                         type="date"
@@ -978,7 +984,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Zählertyp
+                        Meter Type
                       </label>
                       <select
                         value={formData.meterType}
@@ -993,7 +999,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Spannung (V)
+                        Voltage (V)
                       </label>
                       <input
                         type="number"
@@ -1006,7 +1012,7 @@ const ElectricalMeter = () => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Max. Kapazität (A)
+                        Max. Capacity (A)
                       </label>
                       <input
                         type="number"
@@ -1026,16 +1032,16 @@ const ElectricalMeter = () => {
                         onChange={(e) => setFormData({...formData, status: e.target.value})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       >
-                        <option value="Active">Aktiv</option>
+                        <option value="Active">Active</option>
                         <option value="Standby">Standby</option>
-                        <option value="Maintenance">Wartung</option>
+                        <option value="Maintenance">Maintenance</option>
                       </select>
                     </div>
                   </div>
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Notizen
+                      Notes
                     </label>
                     <textarea
                       rows="3"
@@ -1054,13 +1060,13 @@ const ElectricalMeter = () => {
                       }}
                       className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                     >
-                      Abbrechen
+                      Cancel
                     </button>
                     <button
                       type="submit"
                       className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
-                      {editingMeter ? 'Aktualisieren' : 'Erstellen'}
+                      {editingMeter ? 'Update' : 'Create'}
                     </button>
                   </div>
                 </form>

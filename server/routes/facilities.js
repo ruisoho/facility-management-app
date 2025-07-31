@@ -239,17 +239,24 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Facility not found' });
     }
 
-    // Check if facility has associated tasks or maintenance
+    // Check if facility has associated records in all related tables
     const taskCount = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE facility_id = ?').get(facilityId).count;
     const maintenanceCount = db.prepare('SELECT COUNT(*) as count FROM maintenance WHERE facility_id = ?').get(facilityId).count;
+    const electricMeterCount = db.prepare('SELECT COUNT(*) as count FROM electric_meters WHERE facility_id = ?').get(facilityId).count;
+    const heatGasMeterCount = db.prepare('SELECT COUNT(*) as count FROM heat_gas_meters WHERE facility_id = ?').get(facilityId).count;
     
-    if ((taskCount > 0 || maintenanceCount > 0) && cascade !== 'true') {
+    const totalAssociatedRecords = taskCount + maintenanceCount + electricMeterCount + heatGasMeterCount;
+    
+    if (totalAssociatedRecords > 0 && cascade !== 'true') {
       return res.status(400).json({ 
         success: false, 
-        message: `Cannot delete facility with associated records. This facility has ${taskCount} task(s) and ${maintenanceCount} maintenance record(s). To delete anyway, use cascade deletion.`,
+        message: `Cannot delete facility with associated records. This facility has ${taskCount} task(s), ${maintenanceCount} maintenance record(s), ${electricMeterCount} electric meter(s), and ${heatGasMeterCount} heat/gas meter(s). To delete anyway, use cascade deletion.`,
         details: {
           taskCount,
           maintenanceCount,
+          electricMeterCount,
+          heatGasMeterCount,
+          totalRecords: totalAssociatedRecords,
           canCascade: true
         }
       });
@@ -259,14 +266,16 @@ router.delete('/:id', async (req, res) => {
     if (cascade === 'true') {
       db.prepare('DELETE FROM tasks WHERE facility_id = ?').run(facilityId);
       db.prepare('DELETE FROM maintenance WHERE facility_id = ?').run(facilityId);
-      console.log(`🗑️ Cascade deleted ${taskCount} tasks and ${maintenanceCount} maintenance records for facility ${facilityId}`);
+      db.prepare('DELETE FROM electric_meters WHERE facility_id = ?').run(facilityId);
+      db.prepare('DELETE FROM heat_gas_meters WHERE facility_id = ?').run(facilityId);
+      console.log(`🗑️ Cascade deleted ${taskCount} tasks, ${maintenanceCount} maintenance records, ${electricMeterCount} electric meters, and ${heatGasMeterCount} heat/gas meters for facility ${facilityId}`);
     }
 
     db.prepare('DELETE FROM facilities WHERE id = ?').run(facilityId);
     res.json({ 
       success: true, 
       message: cascade === 'true' 
-        ? `Facility and ${taskCount + maintenanceCount} associated records deleted successfully` 
+        ? `Facility and ${totalAssociatedRecords} associated records deleted successfully` 
         : 'Facility deleted successfully'
     });
   } catch (error) {

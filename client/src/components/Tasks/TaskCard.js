@@ -6,7 +6,6 @@ import {
   Clock, 
   AlertTriangle,
   Calendar,
-  User,
   Building,
   FileText,
   Upload,
@@ -148,19 +147,10 @@ const TaskCard = ({
                   </div>
                 )}
 
-                {(task.responsibleCompany || task.responsibleEmployee) && (
+                {task.responsibleCompany && (
                   <div className="flex items-center">
-                    {task.responsibleCompany ? (
-                      <>
-                        <Building className="h-4 w-4 mr-1" />
-                        {task.responsibleCompany}
-                      </>
-                    ) : (
-                      <>
-                        <User className="h-4 w-4 mr-1" />
-                        {task.responsibleEmployee}
-                      </>
-                    )}
+                    <Building className="h-4 w-4 mr-1" />
+                    {task.responsibleCompany}
                   </div>
                 )}
               </div>
@@ -347,21 +337,12 @@ const TaskCard = ({
           )}
         </div>
 
-        {(task.responsibleCompany || task.responsibleEmployee) && (
+        {task.responsibleCompany && (
           <div className="flex items-center text-sm text-gray-600 mb-2">
-            {task.responsibleCompany ? (
-              <>
-                <Building className="h-4 w-4 mr-1" />
-                <span className="font-medium">{task.responsibleCompany}</span>
-                {task.responsibleContact && (
-                  <span className="ml-2">({task.responsibleContact})</span>
-                )}
-              </>
-            ) : (
-              <>
-                <User className="h-4 w-4 mr-1" />
-                <span className="font-medium">{task.responsibleEmployee}</span>
-              </>
+            <Building className="h-4 w-4 mr-1" />
+            <span className="font-medium">{task.responsibleCompany}</span>
+            {task.responsibleContact && (
+              <span className="ml-2">({task.responsibleContact})</span>
             )}
           </div>
         )}

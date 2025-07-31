@@ -72,14 +72,17 @@ const Tasks = () => {
       };
 
       const response = await tasksAPI.getAll(params);
+      
       // Handle both old MongoDB format and new SQLite format
       if (response.data.data) {
         // New SQLite format
-        setTasks(response.data.data || []);
+        const tasksData = response.data.data;
+        setTasks(Array.isArray(tasksData) ? tasksData : []);
         setTotalPages(response.data.pagination?.pages || 1);
       } else {
         // Old MongoDB format (fallback)
-        setTasks(response.data.tasks || []);
+        const tasksData = response.data.tasks || [];
+        setTasks(Array.isArray(tasksData) ? tasksData : []);
         setTotalPages(response.data.totalPages || 1);
       }
     } catch (error) {
